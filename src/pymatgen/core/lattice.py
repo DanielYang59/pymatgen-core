@@ -18,7 +18,10 @@ import numpy as np
 import numpy.linalg as npl
 from numpy import pi
 
-class Lattice(object):
+from pymatgen.serializers.json_coders import MSONable
+
+
+class Lattice(MSONable):
     '''
     A lattice object.  Essentially a matrix with conversion matrices.
     '''
@@ -306,6 +309,8 @@ class Lattice(object):
         'gamma': float(self.gamma),
         'volume': float(self.volume),
         }
+        d['module'] = self.__class__.__module__
+        d['class'] = self.__class__.__name__
         return d
 
     def get_primitive_lattice(self, lattice_type):
