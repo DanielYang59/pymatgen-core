@@ -47,7 +47,8 @@ class Kpoint(MSONable):
         coords_are_cartesian: bool = False,
         label: str | None = None,
     ) -> None:
-        """
+        """Initialize a Kpoint.
+
         Args:
             coords (NDArray): Coordinate of the Kpoint.
             lattice (Lattice): The reciprocal lattice of the kpoint.
@@ -184,7 +185,8 @@ class BandStructure:
         structure: Structure | None = None,
         projections: Mapping[Spin, NDArray] | None = None,
     ) -> None:
-        """
+        """Initialize a BandStructure.
+
         Args:
             kpoints (NDArray): Kpoint as NumPy array, in frac_coords of the
                 given lattice by default.
@@ -661,7 +663,8 @@ class BandStructure:
 
     @classmethod
     def from_old_dict(cls, dct: dict[str, Any]) -> Self:
-        """
+        """Reconstruct a BandStructure from a legacy dict representation.
+
         Args:
             dct (dict): A dict with all data for a BandStructure object.
 
@@ -721,7 +724,8 @@ class BandStructureSymmLine(BandStructure, MSONable):
         structure: Structure | None = None,
         projections: Mapping[Spin, NDArray] | None = None,
     ) -> None:
-        """
+        """Initialize a BandStructureSymmLine.
+
         Args:
             kpoints (NDArray): Array of kpoint, in frac_coords of the
                 given lattice by default
@@ -953,7 +957,8 @@ class LobsterBandStructureSymmLine(BandStructureSymmLine):
 
     @classmethod
     def from_dict(cls, dct: dict[str, Any]) -> Self:
-        """
+        """Reconstruct LobsterBandStructureSymmLine from its MSONable dict representation.
+
         Args:
             dct (dict): All data for a LobsterBandStructureSymmLine object.
 
@@ -993,7 +998,8 @@ class LobsterBandStructureSymmLine(BandStructureSymmLine):
 
     @classmethod
     def from_old_dict(cls, dct: dict[str, Any]) -> Self:
-        """
+        """Reconstruct a LobsterBandStructureSymmLine from a legacy dict representation.
+
         Args:
             dct (dict): All data for a LobsterBandStructureSymmLine object.
 

@@ -36,7 +36,8 @@ class RotationTransformation(AbstractTransformation):
     """The RotationTransformation applies a rotation to a structure."""
 
     def __init__(self, axis, angle, angle_in_radians=False):
-        """
+        """Initialize a RotationTransformation.
+
         Args:
             axis (3x1 array): Axis of rotation, e.g. [1, 0, 0]
             angle (float): Angle to rotate
@@ -77,7 +78,8 @@ class OxidationStateDecorationTransformation(AbstractTransformation):
     """This transformation decorates a structure with oxidation states."""
 
     def __init__(self, oxidation_states):
-        """
+        """Initialize an OxidationStateDecorationTransformation.
+
         Args:
             oxidation_states (dict): Oxidation states supplied as a dict,
             e.g. {"Li":1, "O":-2}.
@@ -111,7 +113,8 @@ class AutoOxiStateDecorationTransformation(AbstractTransformation):
         distance_scale_factor=1.015,
         zeros_on_fail=False,
     ):
-        """
+        """Initialize an AutoOxiStateDecorationTransformation.
+
         Args:
             symm_tol (float): Symmetry tolerance used to determine which sites are
                 symmetrically equivalent. Set to 0 to turn off symmetry.
@@ -176,7 +179,8 @@ class SupercellTransformation(AbstractTransformation):
     """The SupercellTransformation replicates a unit cell to a supercell."""
 
     def __init__(self, scaling_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1))):
-        """
+        """Initialize a SupercellTransformation.
+
         Args:
             scaling_matrix: A matrix of transforming the lattice vectors.
                 Defaults to the identity matrix. Has to be all integers. e.g.
@@ -285,7 +289,8 @@ class SubstitutionTransformation(AbstractTransformation):
             dict[SpeciesLike, SpeciesLike | dict[SpeciesLike, float]] | list[tuple[SpeciesLike, SpeciesLike]]
         ),
     ) -> None:
-        """
+        """Initialize a SubstitutionTransformation.
+
         Args:
             species_map: A dict or list of tuples containing the species mapping in
                 string-string pairs. e.g. {"Li": "Na"} or [("Fe2+","Mn2+")].
@@ -331,7 +336,8 @@ class RemoveSpeciesTransformation(AbstractTransformation):
     """Remove all occurrences of some species from a structure."""
 
     def __init__(self, species_to_remove):
-        """
+        """Initialize a RemoveSpeciesTransformation.
+
         Args:
             species_to_remove: List of species to remove. e.g. ["Li", "Mn"].
         """
@@ -373,7 +379,8 @@ class PartialRemoveSpecieTransformation(AbstractTransformation):
     ALGO_ENUMERATE = 3
 
     def __init__(self, specie_to_remove, fraction_to_remove, algo=ALGO_FAST):
-        """
+        """Initialize a PartialRemoveSpecieTransformation.
+
         Args:
             specie_to_remove: Species to remove. Must have oxidation state e.g.
                 "Li+"
@@ -465,7 +472,8 @@ class OrderDisorderedStructureTransformation(AbstractTransformation):
         symprec: float | None = None,
         angle_tolerance: float | None = None,
     ):
-        """
+        """Initialize an OrderDisorderedStructureTransformation.
+
         Args:
             algo (int): Algorithm to use.
             symmetrized_structures (bool): Whether the input structures are
@@ -663,7 +671,8 @@ class PrimitiveCellTransformation(AbstractTransformation):
     """
 
     def __init__(self, tolerance=0.5):
-        """
+        """Initialize a PrimitiveCellTransformation.
+
         Args:
             tolerance (float): Tolerance for each coordinate of a particular
                 site. For example, [0.5, 0, 0.5] in Cartesian coordinates will be
@@ -692,7 +701,8 @@ class ConventionalCellTransformation(AbstractTransformation):
     """This class finds the conventional cell of the input structure."""
 
     def __init__(self, symprec: float = 0.01, angle_tolerance=5, international_monoclinic=True):
-        """
+        """Initialize a ConventionalCellTransformation.
+
         Args:
             symprec (float): tolerance as in SpacegroupAnalyzer
             angle_tolerance (float): angle tolerance as in SpacegroupAnalyzer
@@ -729,7 +739,8 @@ class PerturbStructureTransformation(AbstractTransformation):
         distance: float = 0.01,
         min_distance: float | None = None,
     ):
-        """
+        """Initialize a PerturbStructureTransformation.
+
         Args:
             distance: Distance of perturbation in angstroms. All sites
                 will be perturbed by exactly that distance in a random
@@ -761,7 +772,8 @@ class DeformStructureTransformation(AbstractTransformation):
     """This transformation deforms a structure by a deformation gradient matrix."""
 
     def __init__(self, deformation=((1, 0, 0), (0, 1, 0), (0, 0, 1))):
-        """
+        """Initialize a DeformStructureTransformation.
+
         Args:
             deformation (array): deformation gradient for the transformation.
         """
@@ -795,7 +807,8 @@ class DiscretizeOccupanciesTransformation(AbstractTransformation):
     """
 
     def __init__(self, max_denominator=5, tol: float | None = None, fix_denominator=False):
-        """
+        """Initialize a DiscretizeOccupanciesTransformation.
+
         Args:
             max_denominator:
                 An integer maximum denominator for discretization. A higher
@@ -850,7 +863,8 @@ class ChargedCellTransformation(AbstractTransformation):
     """
 
     def __init__(self, charge=0):
-        """
+        """Initialize a ChargedCellTransformation.
+
         Args:
             charge: A integer charge to apply to the structure.
                 Defaults to zero. Has to be a single integer. e.g. 2.
@@ -888,7 +902,8 @@ class ScaleToRelaxedTransformation(AbstractTransformation):
     """
 
     def __init__(self, unrelaxed_structure, relaxed_structure, species_map=None):
-        """
+        """Initialize a ScaleToRelaxedTransformation.
+
         Args:
             unrelaxed_structure (Structure): Initial, unrelaxed structure
             relaxed_structure (Structure): Relaxed structure

@@ -71,7 +71,8 @@ class DosPlotter:
         stack: bool = False,
         sigma: float | None = None,
     ) -> None:
-        """
+        """Initialize a DosPlotter.
+
         Args:
             zero_at_efermi (bool): Whether to shift all Dos to have zero energy at the
                 fermi energy. Defaults to True.
@@ -297,7 +298,8 @@ class BSPlotter:
     """Plot or get data to facilitate the plotting of band structure."""
 
     def __init__(self, bs: BandStructureSymmLine) -> None:
-        """
+        """Initialize a BSPlotter.
+
         Args:
             bs: A BandStructureSymmLine object.
         """
@@ -921,7 +923,8 @@ class BSPlotterProjected(BSPlotter):
     """
 
     def __init__(self, bs: BandStructureSymmLine) -> None:
-        """
+        """Initialize a BSPlotterProjected.
+
         Args:
             bs: A BandStructureSymmLine object with projections
             e.g. from a VASP calculation.
@@ -2850,7 +2853,8 @@ class BoltztrapPlotter:
     """Plot Boltztrap data."""
 
     def __init__(self, bz) -> None:
-        """
+        """Initialize a BoltztrapPlotter.
+
         Args:
             bz: a BoltztrapAnalyzer object.
         """
@@ -3766,7 +3770,8 @@ class CohpPlotter:
     """
 
     def __init__(self, zero_at_efermi=True, are_coops=False, are_cobis=False) -> None:
-        """
+        """Initialize a CohpPlotter.
+
         Args:
             zero_at_efermi: Whether to shift all populations to have zero
                 energy at the Fermi level. Defaults to True.

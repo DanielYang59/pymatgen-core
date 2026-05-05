@@ -129,7 +129,8 @@ class Magmom(MSONable):
         moment: MagMomentLike,
         saxis: ArrayLike = (0, 0, 1),
     ) -> None:
-        """
+        """Initialize a Magmom.
+
         Args:
             moment (float | Sequence[float] | NDArray, Magmom): Magnetic moment.
             saxis (tuple[float, float, float]): Spin axis, and will be converted to unit

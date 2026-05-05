@@ -64,7 +64,8 @@ class Cohp(MSONable):
         are_multi_center_cobis: bool = False,
         icohp: Mapping[Spin, NDArray] | None = None,
     ) -> None:
-        """
+        """Initialize a Cohp.
+
         Args:
             efermi (float): The Fermi level.
             energies (Sequence[float]): Energies.
@@ -254,7 +255,8 @@ class CompleteCohp(Cohp):
         are_multi_center_cobis: bool = False,
         orb_res_cohp: dict[str, dict] | None = None,
     ) -> None:
-        """
+        """Initialize a CompleteCohp.
+
         Args:
             structure (Structure): Structure associated with this COHP.
             avg_cohp (Cohp): The average COHP.
@@ -952,7 +954,8 @@ class IcohpValue(MSONable):
         are_cobis: bool = False,
         orbitals: dict[str, dict[Literal["icohp", "orbitals"], Any]] | None = None,
     ) -> None:
-        """
+        """Initialize an IcohpValue.
+
         Args:
             label (str): Label for the ICOHP.
             atom1 (str): The first atom that contributes to the bond.
@@ -1054,7 +1057,8 @@ class IcohpValue(MSONable):
         return self._translation
 
     def icohpvalue(self, spin: Spin = Spin.up) -> float:
-        """
+        """Get the ICOHP value for the given spin channel.
+
         Args:
             spin: Spin.up or Spin.down.
 
@@ -1071,7 +1075,8 @@ class IcohpValue(MSONable):
         orbitals: tuple[Orbital, Orbital] | str,
         spin: Spin = Spin.up,
     ) -> float:
-        """
+        """Get the orbital-resolved ICOHP value for the given spin channel.
+
         Args:
             orbitals: tuple[Orbital, Orbital] or "str(Orbital0)-str(Orbital1)".
             spin (Spin): Spin.up or Spin.down.
@@ -1148,7 +1153,8 @@ class IcohpCollection(MSONable):
         are_coops: bool = False,
         are_cobis: bool = False,
     ) -> None:
-        """
+        """Initialize an IcohpCollection.
+
         Args:
             list_labels (list[str]): Labels for ICOHP/ICOOP values.
             list_atom1 (list[str]): Atom names, e.g. "O1".

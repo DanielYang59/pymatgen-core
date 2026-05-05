@@ -68,10 +68,7 @@ class SymmetryGroup(Sequence, Stringify, ABC):
     @property
     @abstractmethod
     def symmetry_ops(self) -> set[SymmOp]:
-        """
-        Returns:
-            List of symmetry operations associated with the group.
-        """
+        """The set of symmetry operations associated with the group."""
 
     def __contains__(self, item: object) -> bool:
         if not isinstance(item, SymmOp):
@@ -127,10 +124,7 @@ class SymmetryGroup(Sequence, Stringify, ABC):
         return set(subgroup.symmetry_ops).issubset(self.symmetry_ops)
 
     def to_latex_string(self) -> str:
-        """
-        Returns:
-            A latex formatted group symbol with proper subscripts and overlines.
-        """
+        """Get a LaTeX-formatted group symbol with proper subscripts and overlines."""
         sym = re.sub(r"_(\d+)", r"$_{\1}$", self.to_pretty_string())
         return re.sub(r"-(\d)", r"$\\overline{\1}$", sym)
 
@@ -170,10 +164,7 @@ class PointGroup(SymmetryGroup):
 
     @property
     def symmetry_ops(self) -> set[SymmOp]:
-        """
-        Returns:
-            List of symmetry operations associated with the group.
-        """
+        """The set of symmetry operations associated with the group."""
         return self._symmetry_ops
 
     def _generate_full_symmetry_ops(self) -> list[NDArray]:
@@ -593,10 +584,7 @@ class SpaceGroup(SymmetryGroup):
 
     @property
     def crystal_system(self) -> CrystalSystem:
-        """
-        Returns:
-            str: Crystal system of the space group, e.g. cubic, hexagonal, etc.
-        """
+        """Crystal system of the space group, e.g. cubic, hexagonal, etc."""
         num = self.int_number
         if num <= 2:
             return "triclinic"
@@ -690,10 +678,7 @@ class SpaceGroup(SymmetryGroup):
         )
 
     def to_pretty_string(self) -> str:
-        """
-        Returns:
-            str: A pretty string representation of the space group.
-        """
+        """Get a pretty string representation of the space group."""
         return self.symbol
 
 

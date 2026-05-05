@@ -56,7 +56,8 @@ class KPathBase(abc.ABC):
         *args,
         **kwargs,
     ):
-        """
+        """Initialize a KPathBase.
+
         Args:
             structure (Structure): Structure object.
             symprec (float): Tolerance for symmetry finding.
@@ -144,7 +145,8 @@ class KPathSetyawanCurtarolo(KPathBase):
     """
 
     def __init__(self, structure: Structure, symprec: float = 0.01, angle_tolerance=5, atol=1e-5):
-        """
+        """Initialize a KPathSetyawanCurtarolo.
+
         Args:
             structure (Structure): Structure object.
             symprec (float): Tolerance for symmetry finding.
@@ -893,7 +895,8 @@ class KPathSeek(KPathBase):
         atol=1e-5,
         system_is_tri=True,
     ):
-        """
+        """Initialize a KPathSeek.
+
         Args:
             structure (Structure): Structure object
             symprec (float): Tolerance for symmetry finding
@@ -1029,7 +1032,8 @@ class KPathLatimerMunro(KPathBase):
         angle_tolerance=5,
         atol=1e-5,
     ):
-        """
+        """Initialize a KPathLatimerMunro.
+
         Args:
             structure (Structure): Structure object
             has_magmoms (bool): Whether the input structure contains

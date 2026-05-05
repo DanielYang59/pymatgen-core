@@ -39,7 +39,8 @@ class SymmetrizedStructure(Structure):
         equivalent_positions: ArrayLike,
         wyckoff_letters: Sequence[str],
     ) -> None:
-        """
+        """Initialize a SymmetrizedStructure.
+
         Args:
             structure (Structure): Original structure
             spacegroup (SpacegroupOperations): An input SpacegroupOperations from SpacegroupAnalyzer.
@@ -142,7 +143,8 @@ class SymmetrizedStructure(Structure):
 
     @classmethod
     def from_dict(cls, dct: dict[str, Any]) -> Self:
-        """
+        """Reconstruct SymmetrizedStructure from its MSONable dict representation.
+
         Args:
             dct (dict): Dict representation.
 

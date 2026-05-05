@@ -88,7 +88,8 @@ class JonesFaithfulTransformation:
     def parse_transformation_string(
         transformation_string: str = "a,b,c;0,0,0",
     ) -> tuple[list[list[float]] | np.ndarray, list[float]]:
-        """
+        """Parse a "P;p" transformation string into the matrix P and vector p.
+
         Args:
             transformation_string (str, optional): Defaults to "a,b,c;0,0,0".
 

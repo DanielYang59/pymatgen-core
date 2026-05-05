@@ -96,7 +96,8 @@ class SpacegroupAnalyzer:
         symprec: float = 0.01,
         angle_tolerance: float = 5,
     ) -> None:
-        """
+        """Initialize a SpacegroupAnalyzer.
+
         Args:
             structure (Structure | IStructure): Structure to find symmetry
             symprec (float): Tolerance for symmetry finding. Defaults to 0.01,
@@ -1706,7 +1707,8 @@ class SpacegroupOperations(list):
         int_number: int,
         symmops: Sequence[SymmOp],
     ) -> None:
-        """
+        """Initialize a SpacegroupOperations.
+
         Args:
             int_symbol (str): International symbol of the spacegroup.
             int_number (int): International number of the spacegroup.
@@ -1770,7 +1772,8 @@ class PointGroupOperations(list):
         operations: Sequence[SymmOp],
         tol: float = 0.1,
     ) -> None:
-        """
+        """Initialize a PointGroupOperations.
+
         Args:
             sch_symbol (str): Schoenflies symbol of the point group.
             operations ([SymmOp]): Initial set of symmetry operations. It is

@@ -96,7 +96,8 @@ class BoltztrapRunner(MSONable):
         cb_cut=10,
         timeout=7200,
     ) -> None:
-        """
+        """Initialize a BoltztrapRunner.
+
         Args:
             bs:
                 A band structure object
@@ -1628,7 +1629,8 @@ class BoltztrapAnalyzer:
         return CompleteDos(structure, total_dos=total_dos, pdoss=pdoss)
 
     def get_mu_bounds(self, temp=300):
-        """
+        """Get the chemical potential bounds at a given temperature.
+
         Args:
             temp: Temperature.
 
@@ -2009,7 +2011,8 @@ class BoltztrapAnalyzer:
 
     @classmethod
     def from_dict(cls, data: dict) -> Self:
-        """
+        """Reconstruct BoltztrapAnalyzer from its MSONable dict representation.
+
         Args:
             data: Dict representation.
 
@@ -2149,7 +2152,8 @@ class BoltztrapAnalyzer:
 
 
 def read_cube_file(filename):
-    """
+    """Read energy data from a Gaussian-format cube file.
+
     Args:
         filename: Cube filename.
 

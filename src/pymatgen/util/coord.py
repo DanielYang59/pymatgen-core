@@ -401,7 +401,8 @@ class Simplex(MSONable):
         return abs(np.linalg.det(self._aug)) / math.factorial(self.simplex_dim)
 
     def bary_coords(self, point: ArrayLike) -> np.ndarray:
-        """
+        """Get the barycentric coordinates of a point relative to this simplex.
+
         Args:
             point (ArrayLike): Point coordinates.
 
@@ -414,7 +415,8 @@ class Simplex(MSONable):
             raise ValueError("Simplex is not full-dimensional") from exc
 
     def point_from_bary_coords(self, bary_coords: ArrayLike) -> np.ndarray:
-        """
+        """Get the Cartesian point corresponding to the given barycentric coordinates.
+
         Args:
             bary_coords (ArrayLike): Barycentric coordinates (d+1, d).
 

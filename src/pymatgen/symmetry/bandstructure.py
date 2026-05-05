@@ -49,7 +49,8 @@ class HighSymmKpath(KPathBase):
         angle_tolerance=5,
         atol=1e-5,
     ):
-        """
+        """Initialize a HighSymmKpath.
+
         Args:
             structure (Structure): Structure object
             has_magmoms (bool): Whether the input structure contains
@@ -165,17 +166,11 @@ class HighSymmKpath(KPathBase):
         return self._path_lengths
 
     def _get_lm_kpath(self, has_magmoms, magmom_axis, symprec, angle_tolerance, atol):
-        """
-        Returns:
-            Latimer and Munro k-path with labels.
-        """
+        """Get the Latimer and Munro k-path with labels."""
         return KPathLatimerMunro(self._structure, has_magmoms, magmom_axis, symprec, angle_tolerance, atol)
 
     def _get_sc_kpath(self, symprec, angle_tolerance, atol):
-        """
-        Returns:
-            Setyawan and Curtarolo k-path with labels.
-        """
+        """Get the Setyawan and Curtarolo k-path with labels."""
         kpath = KPathSetyawanCurtarolo(self._structure, symprec, angle_tolerance, atol)
 
         self.prim = kpath.prim
@@ -186,10 +181,7 @@ class HighSymmKpath(KPathBase):
         return kpath
 
     def _get_hin_kpath(self, symprec, angle_tolerance, atol, tri):
-        """
-        Returns:
-            Hinuma et al. k-path with labels.
-        """
+        """Get the Hinuma et al. k-path with labels."""
         bs = KPathSeek(self._structure, symprec, angle_tolerance, atol, tri)
 
         kpoints = bs.kpath["kpoints"]
@@ -209,7 +201,8 @@ class HighSymmKpath(KPathBase):
         return bs
 
     def _get_klabels(self, lm_bs, sc_bs, hin_bs, rpg):
-        """
+        """Get equivalent k-point labels across the three k-path conventions.
+
         Returns:
             dict[str, dict[str, dict[str, str]]]: equivalent labels for paths if 'all' is chosen.
             If an exact kpoint match cannot be found, symmetric equivalency will be

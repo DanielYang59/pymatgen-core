@@ -29,7 +29,8 @@ class InsertSitesTransformation(AbstractTransformation):
     """This transformation substitutes certain sites with certain species."""
 
     def __init__(self, species, coords, coords_are_cartesian=False, validate_proximity=True):
-        """
+        """Initialize an InsertSitesTransformation.
+
         Args:
             species: A list of species. e.g. ["Li", "Fe"]
             coords: A list of coords corresponding to those species. e.g.
@@ -75,7 +76,8 @@ class ReplaceSiteSpeciesTransformation(AbstractTransformation):
     """This transformation substitutes certain sites with certain species."""
 
     def __init__(self, indices_species_map):
-        """
+        """Initialize a ReplaceSiteSpeciesTransformation.
+
         Args:
             indices_species_map: A dict containing the species mapping in
                 int-string pairs. e.g. { 1:"Na"} or {2:"Mn2+"}. Multiple
@@ -111,7 +113,8 @@ class RemoveSitesTransformation(AbstractTransformation):
     """Remove certain sites in a structure."""
 
     def __init__(self, indices_to_remove):
-        """
+        """Initialize a RemoveSitesTransformation.
+
         Args:
             indices_to_remove: List of indices to remove. e.g. [0, 1, 2].
         """
@@ -139,7 +142,8 @@ class TranslateSitesTransformation(AbstractTransformation):
     """This class translates a set of sites by a certain vector."""
 
     def __init__(self, indices_to_move, translation_vector, vector_in_frac_coords=True):
-        """
+        """Initialize a TranslateSitesTransformation.
+
         Args:
             indices_to_move: The indices of the sites to move
             translation_vector: Vector to move the sites. If a list of list or numpy
@@ -239,7 +243,8 @@ class PartialRemoveSitesTransformation(AbstractTransformation):
     ALGO_ENUMERATE = 3
 
     def __init__(self, indices, fractions, algo=ALGO_COMPLETE):
-        """
+        """Initialize a PartialRemoveSitesTransformation.
+
         Args:
             indices:
                 A list of list of indices, e.g. [[0, 1], [2, 3, 4, 5]].
@@ -472,7 +477,8 @@ class AddSitePropertyTransformation(AbstractTransformation):
     """Simple transformation to add site properties to a given structure."""
 
     def __init__(self, site_properties):
-        """
+        """Initialize an AddSitePropertyTransformation.
+
         Args:
             site_properties (dict): site properties to be added to a structure.
         """
@@ -500,7 +506,8 @@ class RadialSiteDistortionTransformation(AbstractTransformation):
     """
 
     def __init__(self, site_index: int, displacement: float = 0.1, nn_only: bool = False) -> None:
-        """
+        """Initialize a RadialSiteDistortionTransformation.
+
         Args:
             site_index (int): index of the site in structure to place at the center of the distortion (will
                 not be distorted). This index must be provided before the structure is provided in

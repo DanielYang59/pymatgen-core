@@ -71,7 +71,8 @@ class HistoryNode(NamedTuple):
 
     @classmethod
     def from_dict(cls, dct: dict[str, str]) -> Self:
-        """
+        """Reconstruct HistoryNode from its MSONable dict representation.
+
         Args:
             dct (dict): Dict representation.
 
@@ -116,7 +117,8 @@ class Author(NamedTuple):
 
     @classmethod
     def from_dict(cls, dct: dict[str, str]) -> Self:
-        """
+        """Reconstruct Author from its MSONable dict representation.
+
         Args:
             dct (dict): Dict representation.
 
@@ -186,7 +188,8 @@ class StructureNL:
         history: list[dict] | None = None,
         created_at: datetime | None = None,
     ) -> None:
-        """
+        """Initialize a StructureNL.
+
         Args:
             struct_or_mol: A pymatgen Structure/Molecule object
             authors (list | str):
@@ -313,7 +316,8 @@ class StructureNL:
 
     @classmethod
     def from_dict(cls, dct: dict[str, Any]) -> Self:
-        """
+        """Reconstruct StructureNL from its MSONable dict representation.
+
         Args:
             dct (dict): Dict representation.
 

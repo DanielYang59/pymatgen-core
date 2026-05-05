@@ -66,7 +66,8 @@ class VasprunBSLoader:
     """Loader for Bandstructure and Vasprun pmg objects."""
 
     def __init__(self, obj, structure=None, nelect=None) -> None:
-        """
+        """Initialize a VasprunBSLoader.
+
         Args:
             obj: Either a pmg Vasprun or a BandStructure object.
             structure: Structure object in case is not included in the BandStructure object.
@@ -186,7 +187,8 @@ class BandstructureLoader:
     """Loader for Bandstructure object."""
 
     def __init__(self, bs_obj, structure=None, nelect=None, mommat=None, magmom=None) -> None:
-        """
+        """Initialize a BandstructureLoader.
+
         Args:
             bs_obj: BandStructure object.
             structure: Structure object. It is needed if it is not contained in the BandStructure obj.
@@ -402,7 +404,8 @@ class BztInterpolator:
         save_bands=False,
         fname="bztInterp.json.gz",
     ) -> None:
-        """
+        """Initialize a BztInterpolator.
+
         Args:
             data: A loader
             lpfac: the number of interpolation points in the real space. By
@@ -650,7 +653,8 @@ class BztTransportProperties:
         load_bztTranspProps=False,
         fname="bztTranspProps.json.gz",
     ) -> None:
-        """
+        """Initialize a BztTransportProperties.
+
         Args:
             BztInterpolator: a BztInterpolator previously generated
             temp_r: numpy array of temperatures at which to calculate transport properties
