@@ -109,8 +109,8 @@ class Neighbor(Site):
         self._species: Composition = species
         self.coords: NDArray = coords
         self.properties: dict = properties or {}
-        self.nn_distance: float = nn_distance
-        self.index: int = index
+        object.__setattr__(self, "nn_distance", nn_distance)
+        object.__setattr__(self, "index", index)
         self._label = label
 
     def __len__(self) -> Literal[3]:
@@ -174,9 +174,9 @@ class PeriodicNeighbor(PeriodicSite):
         self._frac_coords = coords
         self._species = species
         self.properties = properties or {}
-        self.nn_distance = nn_distance
-        self.index = index
-        self.image = image
+        object.__setattr__(self, "nn_distance", nn_distance)
+        object.__setattr__(self, "index", index)
+        object.__setattr__(self, "image", image)
         self._label = label
 
     def __len__(self) -> Literal[4]:
