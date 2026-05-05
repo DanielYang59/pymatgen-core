@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from itertools import islice
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -14,7 +14,7 @@ from pymatgen.io.lobster.future.utils import parse_orbital_from_text
 from pymatgen.io.lobster.future.versioning import version_processor
 
 if TYPE_CHECKING:
-    from typing import ClassVar, Literal
+    from typing import ClassVar
 
     from numpy.typing import NDArray
 
@@ -59,21 +59,21 @@ class ICOXXLIST(LobsterInteractionsHolder):
                 continue
 
             if line.startswith(f"{self.icoxxlist_type.upper()}#"):
-                if spin_regex := re.search(r"(?i)for spin\s+(\d)", line):
-                    spin_regex = int(spin_regex.group(1))
+                if spin_match := re.search(r"(?i)for spin\s+(\d)", line):
+                    spin_num = int(spin_match.group(1))
                 else:
                     continue
 
-                if spin_regex == 1:
+                if spin_num == 1:
                     self.spins.append(Spin.up)
-                elif spin_regex == 2:
+                elif spin_num == 2:
                     self.spins.append(Spin.down)
                     interaction_counter = 0
                 else:
-                    raise ValueError(f"Invalid spin value {spin_regex} in line: {line}")
+                    raise ValueError(f"Invalid spin value {spin_num} in line: {line}")
             else:
-                if matches := re.search(self.interactions_regex, line):
-                    matches = matches.groups()
+                if m := re.search(self.interactions_regex, line):
+                    matches = m.groups()
                 else:
                     raise ValueError(f"Could not parse interaction line: {line}")
 
@@ -149,8 +149,8 @@ class ICOXXLIST(LobsterInteractionsHolder):
                 if len(spin_regex) == 2:
                     self.spins.append(Spin.down)
             else:
-                if matches := re.search(self.interactions_regex, line):
-                    matches = matches.groups()
+                if m2 := re.search(self.interactions_regex, line):
+                    matches = m2.groups()
                 else:
                     raise ValueError(f"Could not parse interaction line: {line}")
 
@@ -204,7 +204,7 @@ class ICOXXLIST(LobsterInteractionsHolder):
         cells: list[list[int]] | None = None,
         orbitals: list[str] | None = None,
         length: tuple[float, float] | None = None,
-        spins: list[Literal[1, -1]] | None = None,
+        spins: list[Spin] | None = None,
     ) -> NDArray[np.floating]:
         """Get the data for bonds matching specified properties.
 
@@ -221,8 +221,10 @@ class ICOXXLIST(LobsterInteractionsHolder):
         """
         interaction_indices = self.get_interaction_indices_by_properties(indices, centers, cells, orbitals, length)
 
-        spins = spins or self.spins
-        spin_indices = [0 if spin == Spin.up else 1 for spin in spins]
+        effective_spins = spins if spins is not None else self.spins
+        if effective_spins is None:
+            raise ValueError("No spin channels available for ICOXXLIST data.")
+        spin_indices = [0 if spin == Spin.up else 1 for spin in effective_spins]
 
         return self.data[np.ix_(interaction_indices, spin_indices)]
 
@@ -231,6 +233,8 @@ class ICOXXLIST(LobsterInteractionsHolder):
 
         Assigns numpy views into `self.data` for each spin channel.
         """
+        if self.spins is None:
+            raise ValueError("No spin channels available for ICOXXLIST data.")
         spin_indices = {spin: i for i, spin in enumerate(self.spins)}
 
         for i, interaction in enumerate(self.interactions):
@@ -355,46 +359,49 @@ class NcICOBILIST(LobsterInteractionsHolder):
                 else:
                     raise ValueError(f"Invalid spin value {spin_regex} in line: {line}")
             else:
-                line = re.split(r"\s+(?![^\[]*\])", line)
+                line_parts = re.split(r"\s+(?![^\[]*\])", line)
 
-                bond_tmp = defaultdict(list)
+                bond_tmp: dict[str, list[Any]] = defaultdict(list)
                 length = None
 
-                index = int(line[0])
+                index = int(line_parts[0])
 
-                nc_icobi_value = float(line[-2])
+                nc_icobi_value = float(line_parts[-2])
 
-                for center in line[-1].split("->"):
-                    if match := re.search(self.interactions_regex, center):
-                        match = match.groups()
+                for center in line_parts[-1].split("->"):
+                    if m := re.search(self.interactions_regex, center):
+                        grps = m.groups()
                     else:
-                        raise ValueError(f"Could not parse interaction center line: {line}")
+                        raise ValueError(f"Could not parse interaction center line: {line_parts}")
 
-                    bond_tmp["centers"].append(match[0])
+                    bond_tmp["centers"].append(grps[0])
 
-                    if match[1]:
-                        bond_tmp["cells"].append([int(x) for x in match[1].split()])
+                    if grps[1]:
+                        bond_tmp["cells"].append([int(x) for x in grps[1].split()])
                     else:
                         bond_tmp["cells"].append([])
 
-                    bond_tmp["orbitals"].append(match[2])
+                    bond_tmp["orbitals"].append(grps[2])
 
-                    if match[3]:
-                        length = float(match[3])
+                    if grps[3]:
+                        length = float(grps[3])
 
                 current_spin = self.spins[-1]
                 if current_spin == Spin.up:
                     self.interactions.append(
-                        {
-                            "index": index,
-                            "centers": bond_tmp["centers"],
-                            "cells": bond_tmp["cells"],
-                            "orbitals": bond_tmp["orbitals"],
-                            "length": length,
-                            "icoxx": {
-                                Spin.up: nc_icobi_value,
+                        cast(
+                            "LobsterInteractionData",
+                            {
+                                "index": index,
+                                "centers": bond_tmp["centers"],
+                                "cells": bond_tmp["cells"],
+                                "orbitals": cast("list[str | None]", bond_tmp["orbitals"]),
+                                "length": length,
+                                "icoxx": {
+                                    Spin.up: nc_icobi_value,
+                                },
                             },
-                        }
+                        )
                     )
                 elif current_spin == Spin.down:
                     interaction = self.interactions[interaction_counter]

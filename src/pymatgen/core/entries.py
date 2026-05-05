@@ -46,7 +46,6 @@ if TYPE_CHECKING:
 
     from pymatgen.analysis.phase_diagram import PDEntry
     from pymatgen.core import DummySpecies, Species, Structure
-    from pymatgen.core.entries import ComputedEntry, ComputedStructureEntry, Entry
     from pymatgen.util.typing import SpeciesLike
 
 logger = logging.getLogger(__name__)

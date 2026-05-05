@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from itertools import islice
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -96,7 +96,7 @@ class DOSCAR(LobsterFile):
 
         lines_iter = iter(self.iterate_lines())
 
-        center_counts = defaultdict(int)
+        center_counts: defaultdict[str, int] = defaultdict(int)
 
         for line in islice(lines_iter, 5, None):
             if match := re.match(header_regex, line):
@@ -123,8 +123,8 @@ class DOSCAR(LobsterFile):
             tmp_dos = []
             if line.strip():
                 for _ in range(ndos):
-                    line = next(lines_iter).split()
-                    tmp_dos.append(line)
+                    row_parts = next(lines_iter).split()
+                    tmp_dos.append(row_parts)
 
                 data.append(np.array(tmp_dos, dtype=float))
 
@@ -137,7 +137,7 @@ class DOSCAR(LobsterFile):
             raise ValueError("There is something wrong with the DOSCAR. Can't find efermi.")
 
         energies = data[0][:, 0]
-        projected_dos = {}
+        projected_dos: dict[str, Any] = {}
 
         if self.is_spin_polarized:
             total_dos[Spin.up] = data[0][:, 1]
@@ -169,9 +169,9 @@ class DOSCAR(LobsterFile):
             for orbital, dos in orbitals.items():
                 projected_dos[center][orbital] = Dos(efermi, energies, dos)
 
-        self.projected_dos: dict[str, dict[str, Dos]] = dict(projected_dos)
-        self.total_dos: Dos = Dos(efermi, energies, total_dos)
-        self.integrated_total_dos: Dos = Dos(efermi, energies, integrated_total_dos)
+        self.projected_dos = dict(projected_dos)
+        self.total_dos = Dos(efermi, energies, total_dos)
+        self.integrated_total_dos = Dos(efermi, energies, integrated_total_dos)
 
     @property
     def efermi(self) -> float:
@@ -190,7 +190,8 @@ class DOSCAR(LobsterFile):
         Returns:
             bool: True if the system is spin polarized, False otherwise.
         """
-        return len(self.spins) == 2
+        spins = self.spins
+        return spins is not None and len(spins) == 2
 
     @classmethod
     def get_default_filename(cls) -> str:

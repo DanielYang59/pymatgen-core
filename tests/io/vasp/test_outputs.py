@@ -5,12 +5,13 @@ import gzip
 import json
 import logging
 import os
-import xml
+import tarfile
 from pathlib import Path
 from shutil import copyfile, copyfileobj
 
 import numpy as np
 import pytest
+from lxml import etree as ET
 from monty.io import zopen
 from monty.shutil import decompress_file
 from numpy.testing import assert_allclose
@@ -39,6 +40,7 @@ from pymatgen.io.vasp.outputs import (
     Vaspout,
     VaspParseError,
     Vasprun,
+    Vaspwave,
     Wavecar,
     Waveder,
     Xdatcar,
@@ -142,7 +144,7 @@ class TestVasprun(MatSciTest):
         assert "unlabelled" in vr.dielectric_data
 
     def test_bad_vasprun(self):
-        with pytest.raises(xml.etree.ElementTree.ParseError):
+        with pytest.raises(ET.XMLSyntaxError):
             Vasprun(f"{VASP_OUT_DIR}/vasprun.bad.xml.gz")
 
         with pytest.warns(
@@ -1302,6 +1304,12 @@ class TestOutcar:
         assert outcar.data["fermi_contact_shift"]["th"][0][0] == approx(-0.052)
         assert outcar.data["fermi_contact_shift"]["dh"][0][0] == approx(0.0)
 
+    def test_read_vacuum_potentials(self):
+        outcar = Outcar(f"{VASP_OUT_DIR}/OUTCAR.vacuum_potentials.gz")
+        outcar.read_vacuum_potentials()
+        assert outcar.data["vacuum_potential_upper"] == approx(1.778)
+        assert outcar.data["vacuum_potential_lower"] == approx(1.779)
+
     def test_drift(self):
         outcar = Outcar(f"{VASP_OUT_DIR}/OUTCAR.gz")
         assert len(outcar.drift) == 5
@@ -2373,3 +2381,954 @@ class TestVaspout(MatSciTest):
             for v in self.vaspout_kpoints_opt.bandgap_props.values()
             for bg_prop in v.values()
         )
+
+
+@pytest.mark.skipif(condition=h5py is None, reason="h5py must be installed to use the .Vaspwave class.")
+class TestVaspwave(MatSciTest):
+    @pytest.fixture(autouse=True)
+    def setup_vaspwave_fixtures(self):
+        self.ispin2_std_dir = self._extract_vaspwave_fixture_dir("H2-std-h5")
+        self.h2_ncl_dir = self._extract_vaspwave_fixture_dir("H2-ncl-h5")
+
+    def _extract_vaspwave_fixture_dir(self, fixture_name: str) -> Path:
+        """Extract a bundled Vaspwave fixture archive into the test tempdir."""
+        extracted_root = Path(self.tmp_path) / "vaspwave-fixtures"
+        fixture_dir = extracted_root / "vaspwave" / fixture_name
+        if fixture_dir.exists():
+            return fixture_dir
+        archive_path = Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz"
+        if not archive_path.exists():
+            return fixture_dir
+        extracted_root.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(archive_path, "r:gz") as tar:
+            if hasattr(tarfile, "data_filter"):
+                tar.extractall(extracted_root, filter="data")
+            else:
+                tar.extractall(extracted_root)  # noqa: S202
+        return fixture_dir
+
+    @staticmethod
+    def _write_minimal_vaspwave_h5(filename: str | Path) -> None:
+        with h5py.File(filename, "w") as h5_file:
+            version = h5_file.create_group("version")
+            version.create_dataset("major", data=6)
+            version.create_dataset("minor", data=6)
+            version.create_dataset("patch", data=0)
+
+            structure = h5_file.create_group("structure")
+            positions = structure.create_group("positions")
+            positions.create_dataset("direct_coordinates", data=1)
+            positions.create_dataset("ion_sha256", data=np.array([b"dummy_sha"], dtype="S64"))
+            positions.create_dataset("ion_types", data=np.array([b"H"], dtype="S2"))
+            positions.create_dataset("lattice_vectors", data=np.diag([2.0, 3.0, 4.0]))
+            positions.create_dataset("number_ion_types", data=[2])
+            positions.create_dataset("position_ions", data=[[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]])
+            positions.create_dataset("scale", data=1.0)
+            positions.create_dataset("system", data=np.bytes_("minimal_vaspwave"))
+
+            charge = h5_file.create_group("charge")
+            charge.create_dataset("grid", data=[2, 3, 4])
+            charge.create_dataset("charge", data=np.arange(24, dtype=float).reshape(4, 3, 2)[None, ...])
+
+            locpot = h5_file.create_group("locpot")
+            locpot.create_dataset("grid", data=[2, 3, 4])
+            locpot.create_dataset("total", data=(100.0 + np.arange(24, dtype=float)).reshape(4, 3, 2)[None, ...])
+
+            wave = h5_file.create_group("wave")
+            wave.create_dataset("rispin", data=1.0)
+            wave.create_dataset("rnkpts", data=1.0)
+            wave.create_dataset("rnb_tot", data=2.0)
+            wave.create_dataset("enmax", data=20.0)
+            wave.create_dataset("efermi", data=5.5)
+            wave.create_dataset("amat", data=np.diag([2.0, 3.0, 4.0]))
+
+            spin_1 = wave.create_group("spin_1")
+            kpoint_1 = spin_1.create_group("kpoint_1")
+            kpoint_1.create_dataset("num_planewaves", data=3)
+            kpoint_1.create_dataset("vkpt", data=[0.0, 0.0, 0.0])
+            kpoint_1.create_dataset("fertot", data=[1.0, 0.0])
+            kpoint_1.create_dataset("celtot", data=[[1.5, 0.0], [2.5, -0.25]])
+            wave_data = kpoint_1.create_dataset(
+                "wave",
+                data=np.array(
+                    [
+                        [[1.0, 0.0], [0.5, 0.25], [0.0, 0.0]],
+                        [[0.0, 1.0], [0.25, -0.5], [0.0, 0.0]],
+                    ],
+                    dtype=np.float32,
+                ),
+            )
+            wave_data.attrs["dtype"] = "complex"
+
+    @staticmethod
+    def _remove_vaspwave_structure(filename: str | Path) -> None:
+        with h5py.File(filename, "a") as h5_file:
+            del h5_file["structure"]
+
+    @staticmethod
+    def _write_vaspwave_h5_from_wavecar(
+        filename: str | Path,
+        wavecar: Wavecar,
+        structure: Structure,
+    ) -> None:
+        """Write a minimal Vaspwave-compatible HDF5 file from Wavecar data.
+
+        This helper is intentionally limited to gamma-only and standard
+        Wavecar fixtures used in tests. It writes canonical coefficients for
+        ``std`` files and serialized gamma rows for ``gam`` files so the
+        resulting HDF5 can be parsed back by ``Vaspwave``.
+        """
+        if wavecar.vasp_type not in {"gam", "std"}:
+            raise NotImplementedError(
+                "Runtime Vaspwave fixtures currently support only gamma-only and std Wavecar data."
+            )
+        if wavecar.spin != 1:
+            raise NotImplementedError("Runtime Vaspwave fixtures currently support only spin-unpolarized Wavecar data.")
+
+        lattice = np.array(structure.lattice.matrix, dtype=float)
+        species = [str(sp) for sp in structure.composition]
+        counts = [int(structure.composition[sp]) for sp in structure.composition]
+
+        with h5py.File(filename, "w") as h5_file:
+            version = h5_file.create_group("version")
+            version.create_dataset("major", data=6)
+            version.create_dataset("minor", data=6)
+            version.create_dataset("patch", data=0)
+
+            structure_group = h5_file.create_group("structure")
+            positions = structure_group.create_group("positions")
+            positions.create_dataset("direct_coordinates", data=1)
+            positions.create_dataset("ion_sha256", data=np.array([b"synthetic"], dtype="S64"))
+            positions.create_dataset("ion_types", data=np.array(species, dtype="S8"))
+            positions.create_dataset("lattice_vectors", data=lattice)
+            positions.create_dataset("number_ion_types", data=counts)
+            positions.create_dataset("position_ions", data=np.array(structure.frac_coords, dtype=float))
+            positions.create_dataset("scale", data=1.0)
+            positions.create_dataset("system", data=np.bytes_("wavecar_runtime_fixture"))
+
+            wave = h5_file.create_group("wave")
+            wave.create_dataset("rispin", data=float(wavecar.spin))
+            wave.create_dataset("rnkpts", data=float(wavecar.nk))
+            wave.create_dataset("rnb_tot", data=float(wavecar.nb))
+            wave.create_dataset("enmax", data=float(wavecar.encut))
+            wave.create_dataset("efermi", data=float(wavecar.efermi))
+            wave.create_dataset("amat", data=np.array(wavecar.a, dtype=float))
+
+            spin_group = wave.create_group("spin_1")
+            for ik in range(wavecar.nk):
+                kpoint_group = spin_group.create_group(f"kpoint_{ik + 1}")
+                if wavecar.vasp_type == "gam":
+                    nplane = int((len(wavecar.Gpoints[ik]) + 1) // 2)
+                    coeff_rows = np.array(wavecar.coeffs[ik], dtype=np.complex128)[:, :nplane].copy()
+                    gamma_gpoints, _, extra_coeff_inds = wavecar._generate_G_points(wavecar.kpoints[ik], gamma=True)
+                    if len(gamma_gpoints) != nplane:
+                        raise ValueError("Gamma-only serialization helper generated an unexpected plane-wave count.")
+                    for band_idx in range(wavecar.nb):
+                        for g_ind in extra_coeff_inds:
+                            coeff_rows[band_idx, g_ind] *= np.sqrt(2)
+                else:
+                    nplane = len(wavecar.Gpoints[ik])
+                    coeff_rows = np.array(wavecar.coeffs[ik], dtype=np.complex128)
+
+                kpoint_group.create_dataset("num_planewaves", data=nplane)
+                kpoint_group.create_dataset("vkpt", data=np.array(wavecar.kpoints[ik], dtype=float))
+                kpoint_group.create_dataset("fertot", data=np.array(wavecar.band_energy[ik][:, 2], dtype=float))
+                kpoint_group.create_dataset("celtot", data=np.array(wavecar.band_energy[ik][:, :2], dtype=float))
+                wave_data = np.stack((coeff_rows.real, coeff_rows.imag), axis=-1).astype(np.float32)
+                dataset = kpoint_group.create_dataset("wave", data=wave_data)
+                dataset.attrs["dtype"] = "complex"
+
+    def test_class_available(self):
+        assert Vaspwave is not None
+
+    def test_parse_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+
+        vaspwave = Vaspwave(filename)
+
+        assert vaspwave.spin == 1
+        assert vaspwave.nk == 1
+        assert vaspwave.nb == 2
+        assert vaspwave.encut == approx(20.0)
+        assert vaspwave.efermi == approx(5.5)
+        assert_allclose(vaspwave.a, np.diag([2.0, 3.0, 4.0]))
+        assert vaspwave.vol == approx(24.0)
+        assert_allclose(vaspwave.b, np.diag([np.pi, 2 * np.pi / 3, np.pi / 2]))
+        assert len(vaspwave.kpoints) == 1
+        assert_allclose(vaspwave.kpoints[0], [0.0, 0.0, 0.0])
+        assert len(vaspwave.band_energy) == 1
+        assert_allclose(vaspwave.band_energy[0], [[1.5, 0.0, 1.0], [2.5, -0.25, 0.0]])
+        assert vaspwave.num_planewaves == [3]
+        assert vaspwave.initial_structure.reduced_formula == "H2"
+        assert vaspwave.final_structure == vaspwave.initial_structure
+        assert_allclose(vaspwave.initial_structure.lattice.matrix, np.diag([2.0, 3.0, 4.0]))
+        assert_allclose(vaspwave.initial_structure.frac_coords, [[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]])
+        assert vaspwave._gamma_only is True
+        assert vaspwave.vasp_type == "gam"
+        assert vaspwave.version == {"major": 6, "minor": 6, "patch": 0}
+
+    def test_parse_minimal_vaspwave_h5_without_structure(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        self._remove_vaspwave_structure(filename)
+
+        vaspwave = Vaspwave(filename)
+
+        assert vaspwave.initial_structure is None
+        assert vaspwave.final_structure is None
+        assert vaspwave.spin == 1
+        assert vaspwave.nk == 1
+        assert vaspwave.nb == 2
+        assert_allclose(vaspwave.a, np.diag([2.0, 3.0, 4.0]))
+
+    def test_get_band_coeffs_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+
+        vaspwave = Vaspwave(filename)
+        coeffs = vaspwave.get_band_coeffs(0, 0, 1)
+
+        assert_allclose(
+            coeffs,
+            np.array(
+                [
+                    1j,
+                    (0.25 - 0.5j) / np.sqrt(2),
+                    0.0 + 0.0j,
+                    (0.25 + 0.5j) / np.sqrt(2),
+                    0.0 - 0.0j,
+                ],
+                dtype=np.complex128,
+            ),
+        )
+
+    def test_read_raw_band_coeffs_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+
+        vaspwave = Vaspwave(filename)
+        coeffs_re_im = vaspwave._read_raw_band_coeffs(0, 0, 1)
+
+        assert coeffs_re_im.shape == (3, 2)
+        assert np.issubdtype(coeffs_re_im.dtype, np.floating)
+        assert_allclose(coeffs_re_im, [[0.0, 1.0], [0.25, -0.5], [0.0, 0.0]])
+
+    def test_decode_raw_band_coeffs_minimal_vaspwave_h5(self):
+        coeffs_re_im = np.array([[1.0, 0.0], [0.5, 0.25], [0.0, 0.0]])
+
+        coeffs = Vaspwave._decode_raw_band_coeffs(coeffs_re_im)
+
+        assert coeffs.shape == (3,)
+        assert np.issubdtype(coeffs.dtype, np.complexfloating)
+        assert_allclose(coeffs, [1.0 + 0.0j, 0.5 + 0.25j, 0.0 + 0.0j])
+
+    def test_to_canonical_band_coeffs_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+
+        vaspwave = Vaspwave(filename)
+        raw_coeffs = np.array([1.0 + 0.0j, 0.5 + 0.25j, 0.0 + 0.0j], dtype=np.complex128)
+        coeffs = vaspwave._to_canonical_band_coeffs(raw_coeffs, 0)
+
+        assert len(coeffs) == len(vaspwave.Gpoints[0])
+        assert coeffs.dtype == np.complex128
+        assert_allclose(
+            coeffs,
+            np.array(
+                [
+                    1.0 + 0.0j,
+                    (0.5 + 0.25j) / np.sqrt(2),
+                    0.0 + 0.0j,
+                    (0.5 - 0.25j) / np.sqrt(2),
+                    0.0 - 0.0j,
+                ],
+                dtype=np.complex128,
+            ),
+        )
+
+    def test_get_band_coeffs_invalid_spin_index(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(IndexError, match="Spin index 1 out of range"):
+            vaspwave.get_band_coeffs(1, 0, 0)
+
+    def test_get_band_coeffs_invalid_kpoint_index(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(IndexError, match="Kpoint index 2 out of range"):
+            vaspwave.get_band_coeffs(0, 2, 0)
+
+    def test_get_band_coeffs_invalid_band_index(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(IndexError, match="Band index 4 out of range"):
+            vaspwave.get_band_coeffs(0, 0, 4)
+
+    def test_build_band_energy_array(self):
+        kpoint_data = {
+            "celtot": [[1.5, 0.0], [2.5, -0.25]],
+            "fertot": [1.0, 0.0],
+        }
+        band_energy = Vaspwave._build_band_energy_array(kpoint_data)
+        assert_allclose(band_energy, [[1.5, 0.0, 1.0], [2.5, -0.25, 0.0]])
+
+    def test_parse_structure(self):
+        structure = Vaspwave._parse_structure(
+            {
+                "direct_coordinates": 1,
+                "ion_types": ["H"],
+                "number_ion_types": [2],
+                "lattice_vectors": np.diag([2.0, 3.0, 4.0]),
+                "position_ions": [[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]],
+                "scale": 1.0,
+            }
+        )
+
+        assert structure.reduced_formula == "H2"
+        assert_allclose(structure.lattice.matrix, np.diag([2.0, 3.0, 4.0]))
+        assert_allclose(structure.frac_coords, [[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]])
+
+    def test_compute_reciprocal_lattice_and_volume(self):
+        a = np.diag([2.0, 3.0, 4.0])
+        b, vol = Vaspwave._compute_reciprocal_lattice_and_volume(a)
+
+        assert vol == approx(24.0)
+        assert_allclose(b, np.diag([np.pi, 2 * np.pi / 3, np.pi / 2]))
+
+    def test_is_gamma_only(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+        vaspwave.kpoints = [np.array([1e-12, -1e-12, 0.0])]
+
+        assert vaspwave._is_gamma_only()
+
+    def test_fft_mesh_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        mesh_shift = vaspwave.fft_mesh(0, 0)
+        mesh_noshift = vaspwave.fft_mesh(0, 0, shift=False)
+        gpoints = vaspwave.Gpoints[0]
+
+        assert gpoints is not None
+        assert len(gpoints) == 5
+        assert mesh_shift.shape == tuple(vaspwave.ng)
+        assert mesh_noshift.shape == tuple(vaspwave.ng)
+        assert np.count_nonzero(mesh_shift) == 3
+        assert np.count_nonzero(mesh_noshift) == 3
+
+        center = tuple((vaspwave.ng / 2).astype(int))
+        shifted_indices = [tuple(gp.astype(int) + np.array(center)) for gp in gpoints]
+        expected_coeffs = np.array(
+            [
+                1.0 + 0.0j,
+                (0.5 + 0.25j) / np.sqrt(2),
+                0.0 + 0.0j,
+                (0.5 - 0.25j) / np.sqrt(2),
+                0.0 - 0.0j,
+            ],
+            dtype=np.complex128,
+        )
+        assert_allclose([mesh_noshift[idx] for idx in shifted_indices], expected_coeffs)
+        assert_allclose(mesh_shift, np.fft.ifftshift(mesh_noshift))
+
+    def test_evaluate_wavefunc_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+        r = np.array([0.0, 0.0, 0.0])
+
+        value = vaspwave.evaluate_wavefunc(0, 0, r)
+
+        assert value == approx((1.0 + 2 * (0.5 / np.sqrt(2))) / np.sqrt(24.0))
+
+    def test_negative_indices_match_positive_indices(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+        poscar = Poscar.from_file(f"{VASP_IN_DIR}/POSCAR")
+        r = np.array([0.0, 0.0, 0.0])
+
+        assert_allclose(vaspwave.get_band_coeffs(0, -1, -1), vaspwave.get_band_coeffs(0, 0, 1))
+        assert_allclose(vaspwave.fft_mesh(-1, -1), vaspwave.fft_mesh(0, 1))
+        assert vaspwave.evaluate_wavefunc(-1, -1, r) == approx(vaspwave.evaluate_wavefunc(0, 1, r))
+        assert_allclose(
+            vaspwave.get_parchg(poscar, -1, -1, phase=False).data["total"],
+            vaspwave.get_parchg(poscar, 0, 1, phase=False).data["total"],
+        )
+
+    def test_gamma_only_spin_and_spinor_guards(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+        poscar = Poscar.from_file(f"{VASP_IN_DIR}/POSCAR")
+
+        with pytest.raises(NotImplementedError, match="Spin-resolved vaspwave.h5"):
+            vaspwave.get_parchg(poscar, 0, 0, spin=1)
+
+        vaspwave_default = vaspwave.get_parchg(poscar, 0, 0).data["total"]
+
+        for spinor in (0, 1):
+            vaspwave_parchg = vaspwave.get_parchg(poscar, 0, 0, spinor=spinor).data["total"]
+            assert_allclose(vaspwave_parchg, 0.5 * vaspwave_default)
+
+    def test_fft_mesh_invalid_band_index(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(IndexError, match="Band index 5 out of range"):
+            vaspwave.fft_mesh(0, 5)
+
+    def test_unsupported_vasp_type_guard(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+        vaspwave.vasp_type = "unknown"
+
+        with pytest.raises(NotImplementedError, match="Unsupported vaspwave.h5 type"):
+            vaspwave.fft_mesh(0, 0)
+
+    def test_unsupported_spin_setting_guard(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+        vaspwave.spin = 3
+
+        with pytest.raises(NotImplementedError, match="Unsupported vaspwave.h5 spin setting"):
+            vaspwave.get_band_coeffs(0, 0, 0)
+
+    @pytest.mark.skipif(
+        not (Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz").exists(),
+        reason="Bundled H2 ncl vaspwave fixtures are not available.",
+    )
+    def test_h2_ncl_fixture_matches_wavecar(self):
+        ncl_dir = self.h2_ncl_dir
+        vaspwave = Vaspwave(ncl_dir / "vaspwave.h5")
+        wavecar = Wavecar(ncl_dir / "WAVECAR")
+
+        assert vaspwave.vasp_type == wavecar.vasp_type == "ncl"
+        assert vaspwave.spin == wavecar.spin == 1
+        assert vaspwave.nk == wavecar.nk
+        assert vaspwave.nb == wavecar.nb
+        assert_allclose(vaspwave.kpoints[0], wavecar.kpoints[0])
+        assert len(vaspwave.Gpoints[0]) == len(wavecar.Gpoints[0])
+        assert_allclose(vaspwave.Gpoints[0], wavecar.Gpoints[0])
+
+        coeffs_h5 = vaspwave.get_band_coeffs(0, 0, 0)
+        coeffs_wavecar = wavecar.coeffs[0][0]
+        assert coeffs_h5.shape == coeffs_wavecar.shape == (2, len(wavecar.Gpoints[0]))
+        for spinor in (0, 1):
+            phase = np.vdot(coeffs_wavecar[spinor], coeffs_h5[spinor]) / np.vdot(
+                coeffs_wavecar[spinor], coeffs_wavecar[spinor]
+            )
+            rel_resid = np.linalg.norm(coeffs_h5[spinor] - phase * coeffs_wavecar[spinor]) / np.linalg.norm(
+                coeffs_wavecar[spinor]
+            )
+            if spinor == 0:
+                assert np.linalg.norm(coeffs_h5[spinor] - phase * coeffs_wavecar[spinor]) < 2e-5
+            else:
+                assert rel_resid < 1e-3
+
+        for spinor in (0, 1):
+            coeff_phase = np.vdot(coeffs_wavecar[spinor], coeffs_h5[spinor]) / np.vdot(
+                coeffs_wavecar[spinor], coeffs_wavecar[spinor]
+            )
+            mesh_h5 = vaspwave.fft_mesh(0, 0, spinor=spinor)
+            mesh_wavecar = wavecar.fft_mesh(0, 0, spinor=spinor)
+            mesh_rel_resid = np.linalg.norm(mesh_h5 - coeff_phase * mesh_wavecar) / np.linalg.norm(mesh_wavecar)
+            if spinor == 0:
+                assert np.linalg.norm(mesh_h5 - coeff_phase * mesh_wavecar) < 2e-5
+            else:
+                assert mesh_rel_resid < 1e-3
+
+            assert abs(vaspwave.evaluate_wavefunc(0, 0, np.array([0.0, 0.0, 0.0]), spinor=spinor)) == approx(
+                abs(wavecar.evaluate_wavefunc(0, 0, np.array([0.0, 0.0, 0.0]), spinor=spinor)),
+                rel=0.2,
+                abs=1e-6,
+            )
+
+    @pytest.mark.skipif(
+        not (Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz").exists(),
+        reason="Bundled H2 ncl vaspwave fixtures are not available.",
+    )
+    def test_h2_ncl_fixture_parchg_and_unk_match_wavecar(self):
+        ncl_dir = self.h2_ncl_dir
+        vaspwave = Vaspwave(ncl_dir / "vaspwave.h5")
+        wavecar = Wavecar(ncl_dir / "WAVECAR")
+        poscar = Chgcar.from_file(ncl_dir / "CHGCAR").poscar
+
+        vaspwave_parchg = vaspwave.get_parchg(poscar, 0, 0, phase=False, scale=1)
+        wavecar_parchg = wavecar.get_parchg(poscar, 0, 0, phase=False, scale=1)
+        total_rel_err = np.linalg.norm(vaspwave_parchg.data["total"] - wavecar_parchg.data["total"]) / np.linalg.norm(
+            wavecar_parchg.data["total"]
+        )
+        assert total_rel_err < 0.02
+
+        vaspwave_parchg_spinor = vaspwave.get_parchg(poscar, 0, 0, spinor=1, phase=False, scale=1)
+        wavecar_parchg_spinor = wavecar.get_parchg(poscar, 0, 0, spinor=1, phase=False, scale=1)
+        spinor_rel_err = np.linalg.norm(
+            vaspwave_parchg_spinor.data["total"] - wavecar_parchg_spinor.data["total"]
+        ) / np.linalg.norm(wavecar_parchg_spinor.data["total"])
+        assert spinor_rel_err < 0.02
+
+        vaspwave_parchg_spinor0 = vaspwave.get_parchg(poscar, 0, 0, spinor=0, phase=False, scale=1)
+        wavecar_parchg_spinor0 = wavecar.get_parchg(poscar, 0, 0, spinor=0, phase=False, scale=1)
+        spinor0_rel_err = np.linalg.norm(
+            vaspwave_parchg_spinor0.data["total"] - wavecar_parchg_spinor0.data["total"]
+        ) / np.linalg.norm(wavecar_parchg_spinor0.data["total"])
+        assert spinor0_rel_err < 0.02
+
+        vaspwave_dir = Path(self.tmp_path) / "h2_ncl_vaspwave_unk"
+        wavecar_dir = Path(self.tmp_path) / "h2_ncl_wavecar_unk"
+        vaspwave.write_unks(vaspwave_dir)
+        wavecar.write_unks(wavecar_dir)
+        unk_h5 = Unk.from_file(vaspwave_dir / "UNK00001.NC")
+        unk_wavecar = Unk.from_file(wavecar_dir / "UNK00001.NC")
+        assert unk_h5.data.shape == unk_wavecar.data.shape == (vaspwave.nb, 2, *vaspwave.ng)
+        assert unk_h5.data.dtype == unk_wavecar.data.dtype == np.complex128
+
+    def test_get_parchg_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        chgcar = vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0, phase=False)
+
+        assert "total" in chgcar.data
+        assert "diff" not in chgcar.data
+        assert chgcar.data["total"].shape == tuple(vaspwave.ng * 2)
+        assert np.all(chgcar.data["total"] >= 0.0)
+
+    def test_get_parchg_phase_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        chgcar = vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0, phase=True)
+        chgcar_no_phase = vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0, phase=False)
+
+        assert "total" in chgcar.data
+        assert chgcar.data["total"].shape == tuple(vaspwave.ng * 2)
+        assert_allclose(np.abs(chgcar.data["total"]), chgcar_no_phase.data["total"])
+
+    def test_write_unks_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        out_dir = Path(self.tmp_path) / "unks"
+        vaspwave.write_unks(out_dir)
+
+        unk = Unk.from_file(out_dir / "UNK00001.1")
+        assert unk.data.shape == (vaspwave.nb, *vaspwave.ng)
+        assert unk.data.dtype == np.complex128
+
+    def test_get_chgcar_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        chgcar = vaspwave.get_chgcar()
+
+        assert isinstance(chgcar, Chgcar)
+        assert chgcar.structure == vaspwave.initial_structure
+        assert chgcar.dim == (2, 3, 4)
+        assert_allclose(chgcar.data["total"], np.transpose(np.arange(24, dtype=float).reshape(4, 3, 2), (2, 1, 0)))
+
+    def test_get_chgcar_minimal_vaspwave_h5_without_structure(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        structure = Vaspwave(filename).initial_structure
+        self._remove_vaspwave_structure(filename)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(ValueError, match="single-step SCF"):
+            vaspwave.get_chgcar()
+
+        vaspwave.initial_structure = structure
+        chgcar = vaspwave.get_chgcar()
+
+        assert isinstance(chgcar, Chgcar)
+        assert chgcar.structure == structure
+        assert chgcar.dim == (2, 3, 4)
+        assert_allclose(chgcar.data["total"], np.transpose(np.arange(24, dtype=float).reshape(4, 3, 2), (2, 1, 0)))
+
+    def test_get_locpot_minimal_vaspwave_h5_without_structure(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        structure = Vaspwave(filename).initial_structure
+        self._remove_vaspwave_structure(filename)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(ValueError, match="single-step SCF"):
+            vaspwave.get_locpot()
+
+        vaspwave.initial_structure = structure
+        locpot = vaspwave.get_locpot()
+
+        assert isinstance(locpot, Locpot)
+        assert locpot.structure == structure
+        assert locpot.dim == (2, 3, 4)
+
+    def test_get_locpot_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        locpot = vaspwave.get_locpot()
+
+        assert isinstance(locpot, Locpot)
+        assert locpot.structure == vaspwave.initial_structure
+        assert locpot.dim == (2, 3, 4)
+        assert_allclose(
+            locpot.data["total"],
+            np.transpose((100.0 + np.arange(24, dtype=float)).reshape(4, 3, 2), (2, 1, 0)),
+        )
+
+    def test_validate_volumetric_dataset_invalid_ndim(self):
+        grid = np.array([2, 3, 4])
+        data = np.zeros((4, 3, 2))
+
+        with pytest.raises(ValueError, match="Expected /charge/charge to have 4 dimensions"):
+            Vaspwave._validate_volumetric_dataset(grid, data, "/charge/charge")
+
+    def test_validate_volumetric_dataset_spin_polarized_not_implemented(self):
+        grid = np.array([2, 3, 4])
+        data = np.zeros((2, 4, 3, 2))
+
+        with pytest.raises(NotImplementedError, match="Unsupported /charge/charge component count 2"):
+            Vaspwave._validate_volumetric_dataset(grid, data, "/charge/charge")
+
+    def test_validate_volumetric_dataset_soc_components(self):
+        grid = np.array([2, 3, 4])
+        data = np.zeros((4, 4, 3, 2))
+        data[0] = np.arange(24, dtype=float).reshape(4, 3, 2)
+        data[1] = 1.0
+        data[2] = 2.0
+        data[3] = 3.0
+
+        validated = Vaspwave._validate_volumetric_dataset(grid, data, "/charge/charge")
+
+        assert set(validated) == {"total", "diff_x", "diff_y", "diff_z", "diff"}
+        assert_allclose(validated["total"], np.transpose(data[0], (2, 1, 0)))
+        assert_allclose(validated["diff_x"], np.transpose(data[1], (2, 1, 0)))
+        assert_allclose(validated["diff_y"], np.transpose(data[2], (2, 1, 0)))
+        assert_allclose(validated["diff_z"], np.transpose(data[3], (2, 1, 0)))
+        assert np.all(validated["diff"] > 0)
+
+    def test_validate_volumetric_dataset_grid_shape_mismatch(self):
+        grid = np.array([2, 3, 5])
+        data = np.zeros((1, 4, 3, 2))
+
+        with pytest.raises(
+            ValueError,
+            match="/charge/grid \\(2, 3, 5\\) does not match /charge/charge shape \\(4, 3, 2\\)",
+        ):
+            Vaspwave._validate_volumetric_dataset(grid, data, "/charge/charge")
+
+    @pytest.mark.skipif(
+        not Path(f"{VASP_OUT_DIR}/WAVECAR.H2_low_symm.gamma").exists(),
+        reason="Gamma-only Wavecar fixture is not available.",
+    )
+    def test_gamma_only_runtime_fixture_matches_wavecar(self):
+        wavecar = Wavecar(f"{VASP_OUT_DIR}/WAVECAR.H2_low_symm.gamma")
+        filename = Path(self.tmp_path) / "gamma_runtime_vaspwave.h5"
+        self._write_vaspwave_h5_from_wavecar(filename, wavecar, Poscar.from_file(f"{VASP_IN_DIR}/POSCAR").structure)
+        vaspwave = Vaspwave(filename)
+
+        assert vaspwave.spin == wavecar.spin
+        assert vaspwave.nk == wavecar.nk
+        assert vaspwave.nb == wavecar.nb
+        assert vaspwave.encut == approx(wavecar.encut)
+        assert vaspwave.efermi == approx(wavecar.efermi)
+        assert_allclose(vaspwave.a, wavecar.a)
+        assert_allclose(vaspwave.b, wavecar.b)
+        assert vaspwave.vol == approx(wavecar.vol)
+        assert_allclose(vaspwave.kpoints[0], wavecar.kpoints[0])
+
+        gpoints = vaspwave.Gpoints[0]
+        assert gpoints is not None
+        assert_allclose(gpoints, wavecar.Gpoints[0])
+        assert vaspwave.num_planewaves[0] == len(wavecar._generate_G_points(wavecar.kpoints[0], gamma=True)[0])
+
+        for band in (0, min(1, vaspwave.nb - 1)):
+            assert_allclose(vaspwave.get_band_coeffs(0, 0, band), wavecar.coeffs[0][band])
+            assert_allclose(vaspwave.fft_mesh(0, band), wavecar.fft_mesh(0, band))
+
+        for band, r in ((0, np.array([0.0, 0.0, 0.0])), (0, np.array([0.1, 0.2, 0.3]))):
+            assert vaspwave.evaluate_wavefunc(0, band, r) == approx(wavecar.evaluate_wavefunc(0, band, r))
+
+    @pytest.mark.skipif(
+        not Path(f"{VASP_OUT_DIR}/WAVECAR.H2_low_symm.gamma").exists(),
+        reason="Gamma-only Wavecar fixture is not available.",
+    )
+    def test_gamma_only_runtime_fixture_parchg_and_unk_match_wavecar(self):
+        wavecar = Wavecar(f"{VASP_OUT_DIR}/WAVECAR.H2_low_symm.gamma")
+        poscar = Poscar.from_file(f"{VASP_IN_DIR}/POSCAR")
+        filename = Path(self.tmp_path) / "gamma_runtime_vaspwave.h5"
+        self._write_vaspwave_h5_from_wavecar(filename, wavecar, poscar.structure)
+        vaspwave = Vaspwave(filename)
+
+        vaspwave_parchg = vaspwave.get_parchg(poscar, 0, 0, phase=False, scale=1)
+        wavecar_parchg = wavecar.get_parchg(poscar, 0, 0, spin=0, phase=False, scale=1)
+        assert_allclose(vaspwave_parchg.data["total"], wavecar_parchg.data["total"])
+
+        vaspwave_dir = Path(self.tmp_path) / "vaspwave_unk"
+        wavecar_dir = Path(self.tmp_path) / "wavecar_unk"
+        vaspwave.write_unks(vaspwave_dir)
+        wavecar.write_unks(wavecar_dir)
+
+        assert Unk.from_file(vaspwave_dir / "UNK00001.1") == Unk.from_file(wavecar_dir / "UNK00001.1")
+
+    @pytest.mark.skipif(
+        not Path(f"{VASP_OUT_DIR}/WAVECAR.N2").exists(),
+        reason="Std Wavecar fixture is not available.",
+    )
+    def test_std_runtime_fixture_matches_wavecar(self):
+        wavecar = Wavecar(f"{VASP_OUT_DIR}/WAVECAR.N2")
+        filename = Path(self.tmp_path) / "std_runtime_vaspwave.h5"
+        self._write_vaspwave_h5_from_wavecar(filename, wavecar, Poscar.from_file(f"{VASP_IN_DIR}/POSCAR").structure)
+        vaspwave = Vaspwave(filename)
+
+        assert vaspwave.vasp_type == "std"
+        assert vaspwave.spin == wavecar.spin
+        assert vaspwave.nk == wavecar.nk
+        assert vaspwave.nb == wavecar.nb
+        assert vaspwave.encut == approx(wavecar.encut)
+        assert vaspwave.efermi == approx(wavecar.efermi)
+        assert_allclose(vaspwave.a, wavecar.a)
+        assert_allclose(vaspwave.b, wavecar.b)
+        assert vaspwave.vol == approx(wavecar.vol)
+        assert_allclose(vaspwave.kpoints[0], wavecar.kpoints[0])
+
+        gpoints = vaspwave.Gpoints[0]
+        assert gpoints is not None
+        assert vaspwave.num_planewaves[0] == len(wavecar.Gpoints[0])
+        assert_allclose(gpoints, wavecar.Gpoints[0])
+
+        for band in (0, min(1, vaspwave.nb - 1)):
+            assert_allclose(vaspwave.get_band_coeffs(0, 0, band), wavecar.coeffs[0][band])
+            assert_allclose(vaspwave.fft_mesh(0, band), wavecar.fft_mesh(0, band))
+
+        for band, r in ((0, np.array([0.0, 0.0, 0.0])), (1, np.array([0.1, 0.2, 0.3]))):
+            assert vaspwave.evaluate_wavefunc(0, band, r) == approx(wavecar.evaluate_wavefunc(0, band, r))
+
+    @pytest.mark.skipif(
+        not Path(f"{VASP_OUT_DIR}/WAVECAR.N2").exists(),
+        reason="Std Wavecar fixture is not available.",
+    )
+    def test_std_runtime_fixture_parchg_and_unk_match_wavecar(self):
+        wavecar = Wavecar(f"{VASP_OUT_DIR}/WAVECAR.N2")
+        poscar = Poscar.from_file(f"{VASP_IN_DIR}/POSCAR")
+        filename = Path(self.tmp_path) / "std_runtime_vaspwave.h5"
+        self._write_vaspwave_h5_from_wavecar(filename, wavecar, poscar.structure)
+        vaspwave = Vaspwave(filename)
+
+        vaspwave_parchg = vaspwave.get_parchg(poscar, 0, 0, phase=False, scale=1)
+        wavecar_parchg = wavecar.get_parchg(poscar, 0, 0, spin=0, phase=False, scale=1)
+        assert_allclose(vaspwave_parchg.data["total"], wavecar_parchg.data["total"])
+
+        vaspwave_dir = Path(self.tmp_path) / "std_vaspwave_unk"
+        wavecar_dir = Path(self.tmp_path) / "std_wavecar_unk"
+        vaspwave.write_unks(vaspwave_dir)
+        wavecar.write_unks(wavecar_dir)
+
+        assert Unk.from_file(vaspwave_dir / "UNK00001.1") == Unk.from_file(wavecar_dir / "UNK00001.1")
+
+    def test_std_spin_and_spinor_guards(self):
+        wavecar = Wavecar(f"{VASP_OUT_DIR}/WAVECAR.N2")
+        filename = Path(self.tmp_path) / "std_runtime_vaspwave.h5"
+        poscar = Poscar.from_file(f"{VASP_IN_DIR}/POSCAR")
+        self._write_vaspwave_h5_from_wavecar(filename, wavecar, poscar.structure)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(NotImplementedError, match="Spin-resolved vaspwave.h5"):
+            vaspwave.get_parchg(poscar, 0, 0, spin=1)
+
+        vaspwave_default = vaspwave.get_parchg(poscar, 0, 0)
+        wavecar_default = wavecar.get_parchg(poscar, 0, 0)
+        assert_allclose(vaspwave_default.data["total"], wavecar_default.data["total"])
+
+        for spinor in (0, 1):
+            vaspwave_parchg = vaspwave.get_parchg(poscar, 0, 0, spinor=spinor)
+            wavecar_parchg = wavecar.get_parchg(poscar, 0, 0, spinor=spinor)
+            assert_allclose(vaspwave_parchg.data["total"], 0.5 * vaspwave_default.data["total"])
+            assert_allclose(vaspwave_parchg.data["total"], wavecar_parchg.data["total"])
+
+    @pytest.mark.skipif(
+        not (Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz").exists(),
+        reason="Bundled H2 std vaspwave fixtures are not available.",
+    )
+    def test_h2_ispin2_std_fixture_matches_wavecar(self):
+        vaspwave = Vaspwave(self.ispin2_std_dir / "vaspwave.h5")
+        wavecar = Wavecar(self.ispin2_std_dir / "WAVECAR")
+
+        assert vaspwave.vasp_type == "std"
+        assert vaspwave.spin == wavecar.spin == 2
+        assert vaspwave.nk == wavecar.nk
+        assert vaspwave.nb == wavecar.nb
+        for ik in range(vaspwave.nk):
+            assert_allclose(vaspwave.kpoints[ik], wavecar.kpoints[ik])
+            assert_allclose(vaspwave.Gpoints[ik], wavecar.Gpoints[ik])
+            assert vaspwave.num_planewaves[ik] == len(wavecar.Gpoints[ik])
+
+        for spin in (0, 1):
+            for ik in range(vaspwave.nk):
+                for band in range(vaspwave.nb):
+                    coeffs_h5 = vaspwave.get_band_coeffs(spin, ik, band)
+                    coeffs_wavecar = wavecar.coeffs[spin][ik][band]
+                    phase = np.vdot(coeffs_wavecar, coeffs_h5) / np.vdot(coeffs_wavecar, coeffs_wavecar)
+                    assert_allclose(coeffs_h5, phase * coeffs_wavecar, atol=1e-6, rtol=1e-6)
+
+                    mesh_h5 = vaspwave.fft_mesh(ik, band, spin=spin)
+                    mesh_wavecar = wavecar.fft_mesh(ik, band, spin=spin)
+                    assert_allclose(mesh_h5, phase * mesh_wavecar, atol=1e-6, rtol=1e-6)
+
+        for spin in (0, 1):
+            for ik in range(vaspwave.nk):
+                for band, r in ((0, np.array([0.0, 0.0, 0.0])), (min(1, vaspwave.nb - 1), np.array([0.1, 0.2, 0.3]))):
+                    value_h5 = vaspwave.evaluate_wavefunc(ik, band, r, spin=spin)
+                    value_wavecar = wavecar.evaluate_wavefunc(ik, band, r, spin=spin)
+                    coeffs_h5 = vaspwave.get_band_coeffs(spin, ik, band)
+                    coeffs_wavecar = wavecar.coeffs[spin][ik][band]
+                    phase = np.vdot(coeffs_wavecar, coeffs_h5) / np.vdot(coeffs_wavecar, coeffs_wavecar)
+                    assert value_h5 == approx(phase * value_wavecar, rel=1e-6, abs=1e-6)
+
+    @pytest.mark.skipif(
+        not (Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz").exists(),
+        reason="Bundled H2 std vaspwave fixtures are not available.",
+    )
+    def test_h2_ispin2_std_band_energy_matches_wavecar(self):
+        vaspwave = Vaspwave(self.ispin2_std_dir / "vaspwave.h5")
+
+        assert len(vaspwave.band_energy) == 2
+        for spin in (0, 1):
+            assert len(vaspwave.band_energy[spin]) == vaspwave.nk
+            kpoint_data = vaspwave._get_kpoint_metadata(spin, 0)
+            assert_allclose(vaspwave.band_energy[spin][0], vaspwave._build_band_energy_array(kpoint_data))
+
+        assert not np.allclose(vaspwave.band_energy[0][0], vaspwave.band_energy[1][0])
+
+    @pytest.mark.skipif(
+        not (Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz").exists(),
+        reason="Bundled H2 std vaspwave fixtures are not available.",
+    )
+    def test_h2_ispin2_std_fixture_parchg_and_unk_match_wavecar(self):
+        std_dir = self.ispin2_std_dir
+        vaspwave = Vaspwave(std_dir / "vaspwave.h5")
+        wavecar = Wavecar(std_dir / "WAVECAR")
+        poscar = Chgcar.from_file(std_dir / "CHGCAR").poscar
+
+        vaspwave_parchg = vaspwave.get_parchg(poscar, 0, 0, phase=False, scale=1)
+        wavecar_parchg = wavecar.get_parchg(poscar, 0, 0, phase=False, scale=1)
+        total_rel_err = np.linalg.norm(vaspwave_parchg.data["total"] - wavecar_parchg.data["total"]) / np.linalg.norm(
+            wavecar_parchg.data["total"]
+        )
+        diff_rel_err = np.linalg.norm(vaspwave_parchg.data["diff"] - wavecar_parchg.data["diff"]) / np.linalg.norm(
+            wavecar_parchg.data["diff"]
+        )
+        assert total_rel_err < 0.05
+        assert diff_rel_err < 0.12
+
+        vaspwave_parchg_spin = vaspwave.get_parchg(poscar, 0, 0, spin=1, phase=False, scale=1)
+        wavecar_parchg_spin = wavecar.get_parchg(poscar, 0, 0, spin=1, phase=False, scale=1)
+        spin_rel_err = np.linalg.norm(
+            vaspwave_parchg_spin.data["total"] - wavecar_parchg_spin.data["total"]
+        ) / np.linalg.norm(wavecar_parchg_spin.data["total"])
+        assert spin_rel_err < 0.12
+
+        vaspwave_dir = Path(self.tmp_path) / "ispin2_vaspwave_unk"
+        wavecar_dir = Path(self.tmp_path) / "ispin2_wavecar_unk"
+        vaspwave.write_unks(vaspwave_dir)
+        wavecar.write_unks(wavecar_dir)
+
+        unk_h5_up = Unk.from_file(vaspwave_dir / "UNK00001.1")
+        unk_h5_dn = Unk.from_file(vaspwave_dir / "UNK00001.2")
+        unk_wavecar_up = Unk.from_file(wavecar_dir / "UNK00001.1")
+        unk_wavecar_dn = Unk.from_file(wavecar_dir / "UNK00001.2")
+
+        assert unk_h5_up.data.shape == unk_wavecar_up.data.shape == (vaspwave.nb, *vaspwave.ng)
+        assert unk_h5_dn.data.shape == unk_wavecar_dn.data.shape == (vaspwave.nb, *vaspwave.ng)
+        assert unk_h5_up.data.dtype == unk_wavecar_up.data.dtype == np.complex128
+        assert unk_h5_dn.data.dtype == unk_wavecar_dn.data.dtype == np.complex128
+        for band in range(vaspwave.nb):
+            phase_up = np.vdot(unk_wavecar_up.data[band], unk_h5_up.data[band]) / np.vdot(
+                unk_wavecar_up.data[band], unk_wavecar_up.data[band]
+            )
+            phase_dn = np.vdot(unk_wavecar_dn.data[band], unk_h5_dn.data[band]) / np.vdot(
+                unk_wavecar_dn.data[band], unk_wavecar_dn.data[band]
+            )
+            assert_allclose(unk_h5_up.data[band], phase_up * unk_wavecar_up.data[band], atol=1e-6, rtol=1e-6)
+            assert_allclose(unk_h5_dn.data[band], phase_dn * unk_wavecar_dn.data[band], atol=1e-6, rtol=1e-6)
+
+    @pytest.mark.skipif(
+        not (Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz").exists(),
+        reason="Bundled H2 ncl vaspwave fixtures are not available.",
+    )
+    def test_h2_ncl_fixture_get_chgcar_matches_chgcar(self):
+        vaspwave = Vaspwave(self.h2_ncl_dir / "vaspwave.h5")
+        chgcar_h5 = vaspwave.get_chgcar()
+        chgcar = Chgcar.from_file(self.h2_ncl_dir / "CHGCAR")
+
+        assert chgcar_h5.structure == chgcar.structure
+        assert chgcar_h5.dim == chgcar.dim
+        assert chgcar_h5.is_soc
+        total_rel_err = np.linalg.norm(chgcar_h5.data["total"] - chgcar.data["total"]) / np.linalg.norm(
+            chgcar.data["total"]
+        )
+        diff_x_rel_err = np.linalg.norm(chgcar_h5.data["diff_x"] - chgcar.data["diff_x"]) / np.linalg.norm(
+            chgcar.data["diff_x"]
+        )
+        diff_y_rel_err = np.linalg.norm(chgcar_h5.data["diff_y"] - chgcar.data["diff_y"]) / np.linalg.norm(
+            chgcar.data["diff_y"]
+        )
+        diff_z_rel_err = np.linalg.norm(chgcar_h5.data["diff_z"] - chgcar.data["diff_z"]) / np.linalg.norm(
+            chgcar.data["diff_z"]
+        )
+        diff_rel_err = np.linalg.norm(chgcar_h5.data["diff"] - chgcar.data["diff"]) / np.linalg.norm(
+            chgcar.data["diff"]
+        )
+        assert total_rel_err < 1e-6
+        assert diff_x_rel_err < 2e-4
+        assert diff_y_rel_err < 2e-4
+        assert diff_z_rel_err < 1e-3
+        assert diff_rel_err < 2e-4
+
+    @pytest.mark.skipif(
+        not (Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz").exists(),
+        reason="Bundled H2 ncl vaspwave fixtures are not available.",
+    )
+    def test_h2_ncl_fixture_locpot_maps_soc_components(self):
+        vaspwave = Vaspwave(self.h2_ncl_dir / "vaspwave.h5")
+        locpot = vaspwave.get_locpot()
+        reference = Locpot.from_file(self.h2_ncl_dir / "LOCPOT")
+
+        assert locpot.structure == reference.structure
+        assert locpot.dim == reference.dim
+        assert locpot.is_soc
+        assert set(locpot.data) == {"total", "diff_x", "diff_y", "diff_z", "diff"}
+        assert_allclose(locpot.data["total"], reference.data["total"], atol=8e-5)
+        assert_allclose(locpot.data["diff_x"], reference.data["diff_x"], atol=8e-5)
+        assert_allclose(locpot.data["diff_y"], reference.data["diff_y"], atol=8e-5)
+        assert_allclose(locpot.data["diff_z"], reference.data["diff_z"], atol=8e-5)
+
+        # The scalar ``diff`` value is derived from the SOC vector components
+        # using a reference-direction sign convention. Close to zero, the sign
+        # can flip even when the underlying vector field still matches, so we
+        # compare the reconstructed magnitude instead of requiring pointwise
+        # scalar-sign agreement.
+        locpot_diff_mag = np.sqrt(locpot.data["diff_x"] ** 2 + locpot.data["diff_y"] ** 2 + locpot.data["diff_z"] ** 2)
+        reference_diff_mag = np.sqrt(
+            reference.data["diff_x"] ** 2 + reference.data["diff_y"] ** 2 + reference.data["diff_z"] ** 2
+        )
+        assert_allclose(locpot_diff_mag, reference_diff_mag, atol=9e-5)

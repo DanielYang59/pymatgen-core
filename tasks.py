@@ -234,11 +234,11 @@ def release(ctx: Context, version: str | None = None, nodoc: bool = False) -> No
     version = version or f"{datetime.now(tz=UTC):%Y.%-m.%-d}"
     ctx.run("rm -r dist build pymatgen.egg-info", warn=True)
     set_ver(ctx, version)
-    if not nodoc:
-        make_doc(ctx)
-        ctx.run("git add .")
-        ctx.run('git commit --no-verify -a -m "Update docs"')
-        ctx.run("git push")
+    # if not nodoc:
+    #     make_doc(ctx)
+    #     ctx.run("git add .")
+    #     ctx.run('git commit --no-verify -a -m "Update docs"')
+    #     ctx.run("git push")
     release_github(ctx, version)
 
     ctx.run("rm -f dist/*.*", warn=True)

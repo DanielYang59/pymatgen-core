@@ -35,7 +35,7 @@ numpy==2.0.0
     #   pandas
     #   scipy
     #   spglib
-orjson==3.10.18
+orjson==3.11.6
     # via pymatgen (pyproject.toml)
 packaging==24.2
     # via
@@ -45,7 +45,7 @@ palettable==3.3.3
     # via pymatgen (pyproject.toml)
 pandas==2.2.3
     # via pymatgen (pyproject.toml)
-pillow==12.1.1
+pillow==12.2.0
     # via matplotlib
 plotly==5.24.1
     # via pymatgen (pyproject.toml)
@@ -59,7 +59,7 @@ python-dateutil==2.9.0.post0
     #   pandas
 pytz==2024.2
     # via pandas
-requests==2.32.4
+requests==2.33.0
     # via pymatgen (pyproject.toml)
 ruamel-yaml==0.18.10
     # via

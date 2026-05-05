@@ -42,7 +42,7 @@ Electrostatic Potential in Periodic and Nonperiodic Materials,” J. Chem. Theor
 
 from __future__ import annotations
 
-import gzip
+import contextlib
 import logging
 import os
 import platform
@@ -89,6 +89,7 @@ class ChargemolAnalysis:
         path: str | Path | None = None,
         atomic_densities_path: str | Path | None = None,
         run_chargemol: bool = True,
+        run_dir: str | None = None,
     ) -> None:
         """Initialize the Chargemol Analysis.
 
@@ -101,8 +102,13 @@ class ChargemolAnalysis:
                 Only used if run_chargemol is True. Default: None.
             run_chargemol (bool): Whether to run the Chargemol analysis. If False,
                 the existing Chargemol output files will be read from path. Default: True.
+            run_dir (str | None): Name of the subdirectory to create inside path for
+                Chargemol input/output files. If None (default), a system temporary
+                directory is used and deleted automatically.
         """
         path = path or os.getcwd()
+        self._vasp_dir = str(path)
+        self._run_dir = run_dir
         if run_chargemol and not CHARGEMOL_EXE:
             raise OSError(
                 "ChargemolAnalysis requires the Chargemol executable to be in PATH."
@@ -111,7 +117,7 @@ class ChargemolAnalysis:
             )
         if atomic_densities_path == "":
             atomic_densities_path = os.getcwd()
-        self._atomic_densities_path = str(atomic_densities_path)
+        self._atomic_densities_path = str(atomic_densities_path) if atomic_densities_path is not None else None
 
         self._chgcar_path = self._get_filepath(path, "CHGCAR")
         self._potcar_path = self._get_filepath(path, "POTCAR")
@@ -205,37 +211,41 @@ class ChargemolAnalysis:
             job_control_kwargs: Keyword arguments for _write_jobscript_for_chargemol.
         """
         cwd = os.getcwd()
-        with TemporaryDirectory() as tmp_dir:
-            os.chdir(tmp_dir)
+        if self._run_dir is None:
+            run_ctx: contextlib.AbstractContextManager = TemporaryDirectory()
+        else:
+            run_dir = os.path.join(self._vasp_dir, self._run_dir)
+            os.makedirs(run_dir, exist_ok=True)
+            run_ctx = contextlib.nullcontext(run_dir)
+
+        with run_ctx as run_dir:
+            os.chdir(run_dir)
             try:
-                for file_name in ("chgcar", "potcar", "aeccar0", "aeccar2"):
-                    if (fp := getattr(self, f"_{file_name}_path")).endswith(".gz"):
-                        with gzip.open(fp, "rt") as f_in, open(file_name.upper(), "w") as f_out:
-                            f_out.write(f_in.read())
-                    else:
-                        copyfile(fp, file_name.upper())
-            except OSError:
-                logger.exception("Error copying files.")
+                try:
+                    for file_name in ("chgcar", "aeccar0", "aeccar2"):
+                        Chgcar.from_file(getattr(self, f"_{file_name}_path")).write_file(file_name.upper())
+                    copyfile(self._potcar_path, "POTCAR")
+                except OSError:
+                    logger.exception("Error copying files.")
 
-            # write job_script file:
-            self._write_jobscript_for_chargemol(**job_control_kwargs)
+                self._write_jobscript_for_chargemol(**job_control_kwargs)
 
-            # Run Chargemol
-            with subprocess.Popen(
-                CHARGEMOL_EXE,
-                stdout=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-                close_fds=True,
-            ) as rs:
-                _stdout, stderr = rs.communicate()
-            if rs.returncode != 0:
-                raise RuntimeError(
-                    f"{CHARGEMOL_EXE} exit code: {rs.returncode}, error message: {stderr!s}. "
-                    "Please check your Chargemol installation."
-                )
+                with subprocess.Popen(
+                    CHARGEMOL_EXE,
+                    stdout=subprocess.PIPE,
+                    stdin=subprocess.PIPE,
+                    close_fds=True,
+                ) as rs:
+                    _stdout, stderr = rs.communicate()
+                if rs.returncode != 0:
+                    raise RuntimeError(
+                        f"{CHARGEMOL_EXE} exit code: {rs.returncode}, error message: {stderr!s}. "
+                        "Please check your Chargemol installation."
+                    )
 
-            self._from_data_dir(chargemol_output_path=tmp_dir)
-            os.chdir(cwd)
+                self._from_data_dir(chargemol_output_path=run_dir)
+            finally:
+                os.chdir(cwd)
 
     def _from_data_dir(self, chargemol_output_path=None):
         """Internal command to parse Chargemol files from a directory.

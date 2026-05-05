@@ -133,7 +133,6 @@ class Slab(Structure):
                 fractional_coords. Defaults to None for no properties.
             energy (float): A value for the energy.
         """
-        self.oriented_unit_cell = oriented_unit_cell
         self.miller_index = miller_index
         self.shift = shift
         self.reconstruction = reconstruction
@@ -153,6 +152,30 @@ class Slab(Structure):
                 lattice.beta,
                 lattice.gamma,
             )
+
+            oriented_unit_cell = copy.deepcopy(oriented_unit_cell)
+            ouc_lattice = oriented_unit_cell.lattice
+            ouc_lattice = Lattice.from_parameters(
+                ouc_lattice.a,
+                ouc_lattice.b,
+                ouc_lattice.c,
+                ouc_lattice.alpha,
+                ouc_lattice.beta,
+                ouc_lattice.gamma,
+            )
+
+            self.oriented_unit_cell = Structure(
+                ouc_lattice,
+                oriented_unit_cell.species,
+                oriented_unit_cell.frac_coords,
+                charge=oriented_unit_cell.charge,
+                coords_are_cartesian=False,
+                site_properties=oriented_unit_cell.site_properties,
+                labels=oriented_unit_cell.labels,
+                properties=oriented_unit_cell.properties,
+            )
+        else:
+            self.oriented_unit_cell = oriented_unit_cell
 
         super().__init__(
             lattice,
@@ -1152,31 +1175,35 @@ class SlabGenerator:
         if self.center_slab:
             struct = center_slab(struct)
 
+        ouc = self.oriented_unit_cell.copy()
+
         # Reduce to primitive cell
         if self.primitive:
-            prim_slab = struct.get_primitive_structure(tolerance=tol)
-            struct = prim_slab
+            prim_slab = struct.get_primitive_structure(tolerance=tol, reduce=False)
 
             if energy is not None:
                 energy *= prim_slab.volume / struct.volume
 
-        # Reorient the lattice to get the correctly reduced cell
-        ouc = self.oriented_unit_cell.copy()
-        if self.primitive:
             # Find a reduced OUC
-            slab_l = struct.lattice
-            ouc = ouc.get_primitive_structure(
+            prim_slab_l = prim_slab.lattice
+            prim_ouc = ouc.get_primitive_structure(
                 constrain_latt={
-                    "a": slab_l.a,
-                    "b": slab_l.b,
-                    "alpha": slab_l.alpha,
-                    "beta": slab_l.beta,
-                    "gamma": slab_l.gamma,
-                }
+                    "a": prim_slab_l.a,
+                    "b": prim_slab_l.b,
+                    "alpha": prim_slab_l.alpha,
+                    "beta": prim_slab_l.beta,
+                    "gamma": prim_slab_l.gamma,
+                },
+                reduce=False,
             )
 
-            # Ensure lattice a and b are consistent between the OUC and the Slab
-            ouc = ouc if (slab_l.a == ouc.lattice.a and slab_l.b == ouc.lattice.b) else self.oriented_unit_cell
+            # Ensure lattice a and b are consistent between the OUC and the slab
+            a_b_consistent = np.isclose(prim_slab_l.a, prim_ouc.lattice.a) and np.isclose(
+                prim_slab_l.b, prim_ouc.lattice.b
+            )
+            if a_b_consistent:
+                struct = prim_slab
+                ouc = prim_ouc
 
         return Slab(
             struct.lattice,

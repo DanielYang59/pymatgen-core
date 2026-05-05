@@ -17,9 +17,7 @@ from pymatgen.electronic_structure.core import Magmom, Spin
 if TYPE_CHECKING:  # needed to avoid circular imports
     from pymatgen.analysis.cost import CostEntry  # type: ignore[attr-defined]
     from pymatgen.analysis.phase_diagram import GrandPotPDEntry, PDEntry, TransformedPDEntry
-    from pymatgen.entries import Entry
-    from pymatgen.entries.computed_entries import ComputedEntry, ComputedStructureEntry, GibbsComputedStructureEntry
-    from pymatgen.entries.exp_entries import ExpEntry
+    from pymatgen.core.entries import ComputedEntry, ComputedStructureEntry, Entry
 
 PathLike: TypeAlias = str | Path
 
@@ -42,11 +40,11 @@ EntryLike: TypeAlias = Union[
     "PDEntry",
     "ComputedEntry",
     "ComputedStructureEntry",
-    "ExpEntry",
+    "ExpEntry",  # type: ignore[name-defined]  # noqa: F821
     "TransformedPDEntry",
     "GrandPotPDEntry",
     "CostEntry",
-    "GibbsComputedStructureEntry",
+    "GibbsComputedStructureEntry",  # type: ignore[name-defined]  # noqa: F821
 ]
 
 

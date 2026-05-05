@@ -11,15 +11,16 @@ import re
 import warnings
 from collections import defaultdict
 from collections.abc import Iterable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from glob import glob
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-from xml.etree import ElementTree as ET
 
 import numpy as np
 import orjson
+from lxml import etree as ET
 from monty.dev import requires
 from monty.io import reverse_readfile, zopen
 from monty.json import MSONable, jsanitize
@@ -55,8 +56,7 @@ if TYPE_CHECKING:
     from typing import Literal, Self, TypeAlias
 
     # Avoid name conflict with pymatgen.core.Element
-    from xml.etree.ElementTree import Element as XML_Element
-
+    from lxml.etree import _Element as XML_Element
     from numpy.typing import NDArray
 
     from pymatgen.util.typing import Kpoint, PathLike
@@ -228,10 +228,8 @@ class BandgapProps(MSONable):
 
 class Vasprun(MSONable):
     """
-    Vastly improved cElementTree-based parser for vasprun.xml files. Uses
-    iterparse to support incremental parsing of large files.
-    Speedup over Dom is at least 2x for smallish files (~1 Mb) to orders of
-    magnitude for larger files (~10 Mb).
+    Parser for vasprun.xml files. Uses lxml with explicit tags with iterparsing to reduce callback
+    overhead. Speedup over Dom is at least 2-3x for 10-430MB files.
 
     **VASP results**
 
@@ -356,30 +354,31 @@ class Vasprun(MSONable):
         self.separate_spins = separate_spins
         self.exception_on_bad_xml = exception_on_bad_xml
 
-        with zopen(filename, mode="rt", encoding="utf-8") as file:
-            if ionic_step_skip or ionic_step_offset:
+        if ionic_step_skip or ionic_step_offset:
+            with zopen(filename, mode="rb") as file:
                 # Remove parts of the xml file and parse the string
-                content: str = file.read()  # type:ignore[assignment]
-                steps: list[str] = content.split("<calculation>")
+                content: bytes = file.read()
+                steps: list[bytes] = content.split(b"<calculation>")
 
                 # The text before the first <calculation> is the preamble!
-                preamble: str = steps.pop(0)
+                preamble: bytes = steps.pop(0)
                 self.nionic_steps: int = len(steps)
                 new_steps = steps[ionic_step_offset :: int(ionic_step_skip or 1)]
 
                 # Add the tailing information in the last step from the run
-                to_parse: str = "<calculation>".join(new_steps)
+                to_parse: bytes = b"<calculation>".join(new_steps)
                 if steps[-1] != new_steps[-1]:
-                    to_parse = f"{preamble}<calculation>{to_parse}{steps[-1].split('</calculation>')[-1]}"
+                    to_parse = preamble + b"<calculation>" + to_parse + steps[-1].split(b"</calculation>")[-1]
                 else:
-                    to_parse = f"{preamble}<calculation>{to_parse}"
+                    to_parse = preamble + b"<calculation>" + to_parse
                 self._parse(
-                    BytesIO(to_parse.encode("utf-8")),
+                    BytesIO(to_parse),
                     parse_dos=parse_dos,
                     parse_eigen=parse_eigen,
                     parse_projected_eigen=parse_projected_eigen,
                 )
-            else:
+        else:
+            with zopen(filename, mode="rb") as file:
                 self._parse(
                     file,
                     parse_dos=parse_dos,
@@ -454,7 +453,25 @@ class Vasprun(MSONable):
             # whether they are nested within another block. This is why we
             # must read both start and end tags and have flags to tell us
             # when we have entered or left a block. (2024-01-26)
-            for event, elem in ET.iterparse(stream, events=["start", "end"]):
+            _TAGS = [
+                "atominfo",
+                "calculation",
+                "dielectricfunction",
+                "dos",
+                "dynmat",
+                "eigenvalues",
+                "eigenvalues_kpoints_opt",
+                "energy",
+                "generator",
+                "incar",
+                "kpoints",
+                "parameters",
+                "projected",
+                "projected_kpoints_opt",
+                "structure",
+                "varray",
+            ]
+            for event, elem in ET.iterparse(stream, events=["start", "end"], tag=_TAGS):
                 tag = elem.tag
                 if event == "start":
                     # The start event tells us when we have entered blocks
@@ -603,7 +620,7 @@ class Vasprun(MSONable):
                             if "kinetic" in d:
                                 md_data[-1]["energy"] = {i.attrib["name"]: float(i.text) for i in elem.findall("i")}  # type:ignore[arg-type]
 
-        except ET.ParseError:
+        except ET.XMLSyntaxError:
             if self.exception_on_bad_xml:
                 raise
             warnings.warn(
@@ -654,6 +671,11 @@ class Vasprun(MSONable):
             real_partyz, real_partxz]], [[imag_partxx, imag_partyy, imag_partzz,
             imag_partxy, imag_partyz, imag_partxz]]).
         """
+        keys = self.dielectric_data.keys()
+        if "density" not in keys:
+            return self.dielectric_data[
+                "INVERSE MACROSCOPIC DIELECTRIC TENSOR (including local field effects in RPA (Hartree))"
+            ]
         return self.dielectric_data["density"]
 
     @property
@@ -695,7 +717,11 @@ class Vasprun(MSONable):
         )
         # In a response function run there is no ionic steps, there is no SCF step
         if final_elec_steps == 0:
-            raise ValueError("there is no ionic step in response function ALGO=CHI.")
+            final_elec_steps = []
+            warnings.warn(
+                "there is no ionic step in response function ALGO=CHI.",
+                stacklevel=2,
+            )
 
         if self.incar.get("LEPSILON"):
             idx = 1
@@ -1342,6 +1368,7 @@ class Vasprun(MSONable):
             "G0W0",
             "GW",
             "BSE",
+            "CHI",
             # VASP renamed the GW tags in v6.
             "QPGW",
             "QPGW0",
@@ -1843,7 +1870,7 @@ class BSVasprun(Vasprun):
         self.occu_tol = occu_tol
         self.separate_spins = separate_spins
 
-        with zopen(filename, mode="rt", encoding="utf-8") as file:
+        with zopen(filename, mode="rb") as file:
             self.efermi = None
             parsed_header = False
             in_kpoints_opt = False
@@ -2033,6 +2060,7 @@ class Outcar:
         - read_piezo_tensor
         - read_pseudo_zval
         - read_table_pattern
+        - read_vacuum_potential
 
     Attributes:
         magnetization (tuple[dict[str, float]]): Magnetization on each ion, e.g.
@@ -3731,6 +3759,34 @@ class Outcar:
         }
 
         self.data["fermi_contact_shift"] = fc_shift_table
+
+    def read_vacuum_potentials(
+        self,
+        reverse: bool = True,
+        terminate_on_match: bool = True,
+    ) -> None:
+        """Read the vacuum potentials. (See LVACPOTAV INCAR tag. Note IDIPOL must be 1-3 for potentials to be output.)
+
+        Args:
+            reverse (bool): Whether to start from end of OUTCAR. Defaults to True.
+            terminate_on_match (bool): Whether to terminate once match is found. Defaults to True.
+
+        Renders accessible from self.data:
+            vacuum_potential_upper (float): Upper vacuum potential
+            vacuum_potential_lower (float): Lower vacuum potential
+        """
+        pattern = r"vacuum level on the upper side and lower side of the slab\s+([\d\.\-]+)\s+([\d\.\-]+)"
+        self.read_pattern(
+            {"vacuum_potentials": pattern},
+            reverse=reverse,
+            terminate_on_match=terminate_on_match,
+            postprocess=float,
+        )
+        vacuum_potentials = self.data.get("vacuum_potentials", None)  # upper, lower
+        if vacuum_potentials:
+            self.data["vacuum_potential_upper"] = vacuum_potentials[0][0]
+            self.data["vacuum_potential_lower"] = vacuum_potentials[0][1]
+            self.data.pop("vacuum_potentials")
 
 
 class VolumetricData(BaseVolumetricData):
@@ -5870,7 +5926,8 @@ class Waveder(MSONable):
         Returns:
             a float value
         """
-        return self.cder[band_i, band_j, kpoint, spin, cart_dir]
+        idx = (band_i, band_j, kpoint, spin, cart_dir)
+        return self.cder_real[idx] + 1j * self.cder_imag[idx]
 
 
 @dataclass
@@ -5967,6 +6024,791 @@ class WSWQ(MSONable):
 
 class UnconvergedVASPWarning(Warning):
     """Warning for unconverged VASP run."""
+
+
+# Development note for Vaspwave:
+# - Keep the public API aligned with Wavecar where practical.
+# - Keep HDF5 access helpers separate from wavefunction reconstruction helpers.
+# - File-backed metadata access should stay in the `_parse_*`, `_read_*`, and
+#   `_get_*metadata` helpers.
+# - Reciprocal-space and real-space reconstruction should stay in the
+#   `_initialize_*state`, coefficient-conversion, mesh-building, and IFFT
+#   helpers.
+# - When extending support (for example spin-polarized or non-gamma files),
+#   prefer adding capability checks in one place rather than scattering
+#   conditionals across multiple public methods.
+# - VASP writes `vaspwave.h5` wave datasets through the same `MRG_PW_BAND` /
+#   `MRG_PW_BAND_GAMMA` merge path used for legacy `WAVECAR`, so std and ncl
+#   datasets are already stored in the public Wavecar-style canonical layout.
+#   The only coefficient reconstruction currently needed here is the gamma-only
+#   symmetry completion.
+@requires(h5py is not None, "h5py must be installed to read vaspwave.h5")
+class Vaspwave(Vasprun):
+    """
+    Class to read vaspwave.h5 files.
+
+    This class is intended as an HDF5-native companion to Wavecar. The current
+    implementation supports gamma-only, std, and ncl wavefunction access with a
+    public interface that matches Wavecar where practical.
+    """
+
+    def __init__(self, filename: str | Path) -> None:
+        self.filename = str(filename)
+        self._wave_path_map: dict[tuple[int, int], str] = {}
+        self._gamma_only = False
+        self._C = 0.262465831
+        self._parse()
+
+    # -------------------------------------------------------------------------
+    # Parse and initialization
+    # -------------------------------------------------------------------------
+    @classmethod
+    def _parse_hdf5_value(cls, val: Any) -> Any:
+        """Parse HDF5 values recursively, turning them into Python objects."""
+        if hasattr(val, "items"):
+            val = {k: cls._parse_hdf5_value(v) for k, v in val.items()}
+        else:
+            val = np.array(val).tolist()
+            if isinstance(val, bytes):
+                val = val.decode()
+            elif isinstance(val, list):
+                val = [cls._parse_hdf5_value(x) for x in val]
+        return val
+
+    def _parse_file_metadata(self) -> dict[str, Any]:
+        """Read raw metadata needed to initialize a ``Vaspwave`` object.
+
+        This method only extracts file-backed metadata and does not derive any
+        wavefunction reconstruction state.
+
+        Returns:
+            dict[str, Any]: Parsed metadata including version information,
+                structure data, wavefunction dimensions, cutoff, lattice
+                matrix, and Fermi energy.
+        """
+        with zopen(self.filename, "rb") as vwave_file, h5py.File(vwave_file, "r") as h5_file:
+            version = self._parse_hdf5_value(h5_file["version"])
+            wave_group = h5_file["wave"]
+            structure_group = None
+            if "structure" in h5_file and "positions" in h5_file["structure"]:
+                structure_group = self._parse_hdf5_value(h5_file["structure"]["positions"])
+            self._register_wave_paths(wave_group)
+
+            return {
+                "version": version,
+                "structure_group": structure_group,
+                "spin": int(self._parse_hdf5_value(wave_group["rispin"])),
+                "nk": int(self._parse_hdf5_value(wave_group["rnkpts"])),
+                "nb": int(self._parse_hdf5_value(wave_group["rnb_tot"])),
+                "encut": float(self._parse_hdf5_value(wave_group["enmax"])),
+                "a": np.array(self._parse_hdf5_value(wave_group["amat"]), dtype=float),
+                "efermi": float(self._parse_hdf5_value(wave_group["efermi"])),
+            }
+
+    def _initialize_kpoint_state(self) -> None:
+        """Initialize per-k-point metadata used by wavefunction reconstruction."""
+        self.kpoints = []
+        self.num_planewaves = []
+        if self.spin == 2:
+            self.band_energy = [[] for _ in range(self.spin)]
+        else:
+            self.band_energy = []
+
+        for ik in range(self.nk):
+            kpoint_data = self._get_kpoint_metadata(0, ik)
+            self.kpoints.append(np.array(kpoint_data["vkpt"], dtype=float))
+            self.num_planewaves.append(int(kpoint_data["num_planewaves"]))
+            if self.spin == 2:
+                for ispin in range(self.spin):
+                    spin_kpoint_data = self._get_kpoint_metadata(ispin, ik)
+                    self.band_energy[ispin].append(self._build_band_energy_array(spin_kpoint_data))
+            else:
+                self.band_energy.append(self._build_band_energy_array(kpoint_data))
+
+    def _initialize_reconstruction_state(self) -> None:
+        """Initialize reciprocal-space state used to reconstruct wavefunctions."""
+        self._generate_nbmax()
+        self.ng = self._nbmax * 3
+        self._gamma_only = self._is_gamma_only()
+        self.Gpoints = [None for _ in range(self.nk)]
+        self._gamma_extra_coeff_inds = [[] for _ in range(self.nk)]
+
+        for ik, kpoint in enumerate(self.kpoints):
+            if self._gamma_only:
+                gpoints, extra_gpoints, extra_coeff_inds = self._generate_G_points(kpoint, gamma=True)
+                self.Gpoints[ik] = np.array(gpoints + extra_gpoints, dtype=np.float64)
+                self._gamma_extra_coeff_inds[ik] = extra_coeff_inds
+            else:
+                gpoints, _, _ = self._generate_G_points(kpoint, gamma=False)
+                if len(gpoints) != self.num_planewaves[ik] and 2 * len(gpoints) != self.num_planewaves[ik]:
+                    raise ValueError(
+                        f"Generated {len(gpoints)} G-points for kpoint {ik}, expected {self.num_planewaves[ik]}."
+                    )
+                self.Gpoints[ik] = np.array(gpoints, dtype=np.float64)
+
+        if self._gamma_only:
+            self.vasp_type = "gam"
+        elif all(
+            2 * len(gpoints) == num_pw for gpoints, num_pw in zip(self.Gpoints, self.num_planewaves, strict=False)
+        ):
+            self.vasp_type = "ncl"
+        else:
+            self.vasp_type = "std"
+
+    def _initialize_wave_state(self, metadata: dict[str, Any]) -> None:
+        """Populate derived state from parsed file metadata.
+
+        Args:
+            metadata (dict[str, Any]): Raw metadata returned by
+                ``_parse_file_metadata()``.
+        """
+        self.version = metadata["version"]
+        self.spin = metadata["spin"]
+        self.nk = metadata["nk"]
+        self.nb = metadata["nb"]
+        self.encut = metadata["encut"]
+        self.efermi = metadata["efermi"]
+        self.a = metadata["a"]
+        self.b, self.vol = self._compute_reciprocal_lattice_and_volume(self.a)
+        structure_group = metadata["structure_group"]
+        self.initial_structure = None if structure_group is None else self._parse_structure(structure_group)
+        self.final_structure = None if self.initial_structure is None else self.initial_structure.copy()
+        self._initialize_kpoint_state()
+        self._initialize_reconstruction_state()
+
+    def _parse(self) -> None:
+        """Parse ``vaspwave.h5`` metadata and initialize reconstruction state."""
+        metadata = self._parse_file_metadata()
+        self._initialize_wave_state(metadata)
+
+    # -------------------------------------------------------------------------
+    # HDF5 access helpers
+    # -------------------------------------------------------------------------
+    @contextmanager
+    def _open_hdf5_file(self):
+        """Open ``vaspwave.h5`` and yield an active HDF5 handle."""
+        with zopen(self.filename, "rb") as vwave_file, h5py.File(vwave_file, "r") as h5_file:
+            yield h5_file
+
+    def _read_hdf5_dataset(self, dataset_path: str, h5_file=None) -> np.ndarray:
+        """Read a dataset from ``vaspwave.h5`` into a NumPy array."""
+        if h5_file is not None:
+            return np.array(h5_file[dataset_path])
+        with self._open_hdf5_file() as opened_h5_file:
+            return np.array(opened_h5_file[dataset_path])
+
+    def _read_hdf5_dataset_slice(self, dataset_path: str, key: Any, h5_file=None) -> np.ndarray:
+        """Read a slice from a dataset in ``vaspwave.h5`` into a NumPy array."""
+        if h5_file is not None:
+            return np.array(h5_file[dataset_path][key])
+        with self._open_hdf5_file() as opened_h5_file:
+            return np.array(opened_h5_file[dataset_path][key])
+
+    def _register_wave_paths(self, wave_group) -> None:
+        """Register lazy-read paths to per-spin/per-kpoint wavefunction datasets.
+
+        Args:
+            wave_group: Open HDF5 group corresponding to ``/wave``.
+        """
+        for ispin in range(int(self._parse_hdf5_value(wave_group["rispin"]))):
+            spin_key = f"spin_{ispin + 1}"
+            if spin_key not in wave_group:
+                continue
+            for ik in range(int(self._parse_hdf5_value(wave_group["rnkpts"]))):
+                kpoint_key = f"kpoint_{ik + 1}"
+                if kpoint_key not in wave_group[spin_key]:
+                    continue
+                self._wave_path_map[(ispin, ik)] = f"/wave/{spin_key}/{kpoint_key}/wave"
+
+    def _get_kpoint_metadata(self, spin_index: int, kpoint_index: int, h5_file=None) -> dict[str, Any]:
+        """Read metadata for a single spin/k-point block.
+
+        Args:
+            spin_index (int): Zero-based spin index.
+            kpoint_index (int): Zero-based k-point index.
+
+        Returns:
+            dict[str, Any]: Parsed metadata for the selected spin/k-point block.
+        """
+        group_path = f"/wave/spin_{spin_index + 1}/kpoint_{kpoint_index + 1}"
+        if h5_file is None:
+            with self._open_hdf5_file() as opened_h5_file:
+                return self._get_kpoint_metadata(spin_index, kpoint_index, h5_file=opened_h5_file)
+
+        kpoint_group = h5_file[group_path]
+        return {
+            "vkpt": self._parse_hdf5_value(kpoint_group["vkpt"]),
+            "fertot": self._parse_hdf5_value(kpoint_group["fertot"]),
+            "celtot": self._parse_hdf5_value(kpoint_group["celtot"]),
+            "num_planewaves": self._parse_hdf5_value(kpoint_group["num_planewaves"]),
+        }
+
+    def _get_wave_dataset_path(self, spin_index: int, kpoint_index: int) -> str:
+        """Get the HDF5 dataset path for a spin/k-point wavefunction block."""
+        if (spin_index, kpoint_index) not in self._wave_path_map:
+            raise KeyError(f"No wavefunction dataset registered for spin={spin_index}, kpoint={kpoint_index}.")
+        return self._wave_path_map[(spin_index, kpoint_index)]
+
+    # -------------------------------------------------------------------------
+    # Shared structure / metadata transforms
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _build_band_energy_array(kpoint_data: dict[str, Any]) -> np.ndarray:
+        """Build the Wavecar-like band energy array from celtot and fertot."""
+        celtot = np.array(kpoint_data["celtot"], dtype=float)
+        fertot = np.array(kpoint_data["fertot"], dtype=float)
+        return np.column_stack((celtot[:, 0], celtot[:, 1], fertot))
+
+    @staticmethod
+    def _parse_structure(positions: dict[str, Any]) -> Structure:
+        """Parse the crystal structure stored in ``/structure/positions``."""
+        species = []
+        for ispecie, specie in enumerate(positions["ion_types"]):
+            species += [specie for _ in range(positions["number_ion_types"][ispecie])]
+
+        return Structure(
+            lattice=Lattice(positions["scale"] * np.array(positions["lattice_vectors"])),
+            species=species,
+            coords=positions["position_ions"],
+            coords_are_cartesian=(positions["direct_coordinates"] != 1),
+        )
+
+    def _get_volumetric_poscar(self) -> Poscar | Structure:
+        """Get the structure object used to construct volumetric VASP outputs."""
+        if self.initial_structure is None:
+            raise ValueError(
+                "vaspwave.h5 does not contain /structure/positions. This can happen for a single-step SCF "
+                "calculation where VASP does not store the structure in vaspwave.h5. Attach a structure manually "
+                "by setting vaspwave.initial_structure before calling this method."
+            )
+        return self.initial_structure
+
+    @staticmethod
+    def _compute_reciprocal_lattice_and_volume(a: np.ndarray) -> tuple[np.ndarray, float]:
+        """Compute reciprocal lattice vectors and real-space cell volume."""
+        vol = np.dot(a[0, :], np.cross(a[1, :], a[2, :]))
+        b = (
+            2
+            * np.pi
+            * np.array(
+                [
+                    np.cross(a[1, :], a[2, :]),
+                    np.cross(a[2, :], a[0, :]),
+                    np.cross(a[0, :], a[1, :]),
+                ]
+            )
+            / vol
+        )
+        return b, vol
+
+    # -------------------------------------------------------------------------
+    # Reconstruction-state initialization
+    # -------------------------------------------------------------------------
+    def _generate_nbmax(self) -> None:
+        """Determine maximum number of reciprocal vectors for each direction."""
+        bmag = np.linalg.norm(self.b, axis=1)
+        b = self.b
+
+        phi12 = np.arccos(np.dot(b[0, :], b[1, :]) / (bmag[0] * bmag[1]))
+        sphi123 = np.dot(b[2, :], np.cross(b[0, :], b[1, :])) / (bmag[2] * np.linalg.norm(np.cross(b[0, :], b[1, :])))
+        nbmaxA = np.sqrt(self.encut * self._C) / bmag
+        nbmaxA[0] /= np.abs(np.sin(phi12))
+        nbmaxA[1] /= np.abs(np.sin(phi12))
+        nbmaxA[2] /= np.abs(sphi123)
+        nbmaxA += 1
+
+        phi13 = np.arccos(np.dot(b[0, :], b[2, :]) / (bmag[0] * bmag[2]))
+        sphi123 = np.dot(b[1, :], np.cross(b[0, :], b[2, :])) / (bmag[1] * np.linalg.norm(np.cross(b[0, :], b[2, :])))
+        nbmaxB = np.sqrt(self.encut * self._C) / bmag
+        nbmaxB[0] /= np.abs(np.sin(phi13))
+        nbmaxB[1] /= np.abs(sphi123)
+        nbmaxB[2] /= np.abs(np.sin(phi13))
+        nbmaxB += 1
+
+        phi23 = np.arccos(np.dot(b[1, :], b[2, :]) / (bmag[1] * bmag[2]))
+        sphi123 = np.dot(b[0, :], np.cross(b[1, :], b[2, :])) / (bmag[0] * np.linalg.norm(np.cross(b[1, :], b[2, :])))
+        nbmaxC = np.sqrt(self.encut * self._C) / bmag
+        nbmaxC[0] /= np.abs(sphi123)
+        nbmaxC[1] /= np.abs(np.sin(phi23))
+        nbmaxC[2] /= np.abs(np.sin(phi23))
+        nbmaxC += 1
+
+        self._nbmax = np.max([nbmaxA, nbmaxB, nbmaxC], axis=0).astype(int)
+
+    def _generate_G_points(
+        self,
+        kpoint: NDArray,
+        gamma: bool = False,
+    ) -> tuple[list, list, list]:
+        """Generate reciprocal lattice vectors used for wavefunction reconstruction."""
+        kmax = self._nbmax[0] + 1 if gamma else 2 * self._nbmax[0] + 1
+
+        gpoints = []
+        extra_gpoints = []
+        extra_coeff_inds = []
+        G_ind = 0
+        for i in range(2 * self._nbmax[2] + 1):
+            i3 = i - 2 * self._nbmax[2] - 1 if i > self._nbmax[2] else i
+            for j in range(2 * self._nbmax[1] + 1):
+                j2 = j - 2 * self._nbmax[1] - 1 if j > self._nbmax[1] else j
+                for k in range(kmax):
+                    k1 = k - 2 * self._nbmax[0] - 1 if k > self._nbmax[0] else k
+                    if gamma and ((k1 == 0 and j2 < 0) or (k1 == 0 and j2 == 0 and i3 < 0)):
+                        continue
+                    G = np.array([k1, j2, i3])
+                    v = kpoint + G
+                    g = np.linalg.norm(np.dot(v, self.b))
+                    E = g**2 / self._C
+                    if self.encut > E:
+                        gpoints.append(G)
+                        if gamma and (k1, j2, i3) != (0, 0, 0):
+                            extra_gpoints.append(-G)
+                            extra_coeff_inds.append(G_ind)
+                        G_ind += 1
+        return gpoints, extra_gpoints, extra_coeff_inds
+
+    def _is_gamma_only(self) -> bool:
+        """Check whether the current file matches the gamma-only implementation."""
+        if self.spin != 1 or self.nk != 1:
+            return False
+        if not all(np.allclose(kpoint, 0.0, atol=1e-8) for kpoint in self.kpoints):
+            return False
+
+        gamma_gpoints, _, _ = self._generate_G_points(self.kpoints[0], gamma=True)
+        return self.num_planewaves[0] == len(gamma_gpoints)
+
+    # -------------------------------------------------------------------------
+    # Wave reconstruction helpers
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _normalize_index(index: int, size: int, label: str) -> int:
+        """Normalize Python-style negative indices and validate bounds."""
+        if index < 0:
+            index += size
+        if not 0 <= index < size:
+            raise IndexError(f"{label} index {index} out of range for {size} {label.lower()}s.")
+        return index
+
+    def _normalize_wave_indices(self, kpoint: int, band: int) -> tuple[int, int]:
+        """Normalize Python-style wavefunction indices and validate bounds.
+
+        Args:
+            kpoint (int): K-point index, allowing negative Python-style values.
+            band (int): Band index, allowing negative Python-style values.
+
+        Returns:
+            tuple[int, int]: Normalized non-negative ``(kpoint, band)`` indices.
+        """
+        return self._normalize_index(kpoint, self.nk, "Kpoint"), self._normalize_index(band, self.nb, "Band")
+
+    def _normalize_spin_index(self, spin_index: int) -> int:
+        """Normalize and validate a collinear spin index."""
+        return self._normalize_index(spin_index, self.spin, "Spin")
+
+    def _validate_spin_and_spinor_args(self, spin: int = 0, spinor: int = 0) -> tuple[int, int]:
+        """Validate supported spin and spinor arguments for wavefunction APIs."""
+        if self.vasp_type not in {"gam", "std", "ncl"}:
+            raise NotImplementedError("Unsupported vaspwave.h5 type.")
+        if self.spin not in {1, 2}:
+            raise NotImplementedError("Unsupported vaspwave.h5 spin setting.")
+        if self.vasp_type == "ncl":
+            if spin != 0:
+                raise NotImplementedError("Spin-resolved ncl vaspwave.h5 is not implemented yet.")
+            spinor = self._normalize_index(spinor, 2, "Spinor")
+            return 0, spinor
+
+        if spinor != 0:
+            raise NotImplementedError("Spinor-resolved vaspwave.h5 is not implemented yet.")
+        return self._normalize_spin_index(spin), 0
+
+    @staticmethod
+    def _transpose_volumetric_component(component: np.ndarray) -> np.ndarray:
+        """Transpose one HDF5 volumetric component into pymatgen grid order."""
+        return np.transpose(component, (2, 1, 0))
+
+    @staticmethod
+    def _build_noncollinear_volumetric_data(data: np.ndarray) -> dict[str, np.ndarray]:
+        """Build noncollinear volumetric data from a four-component HDF5 grid."""
+        total = Vaspwave._transpose_volumetric_component(data[0])
+        diff_x = Vaspwave._transpose_volumetric_component(data[1])
+        diff_y = Vaspwave._transpose_volumetric_component(data[2])
+        diff_z = Vaspwave._transpose_volumetric_component(data[3])
+        diff_components = [diff_x, diff_y, diff_z]
+        diff_xyz = np.array(diff_components).reshape((3, total.size))
+        ref_direction = np.array([1.01, 1.02, 1.03])
+        ref_sign = np.sign(np.dot(ref_direction, diff_xyz))
+        diff = np.multiply(np.linalg.norm(diff_xyz, axis=0), ref_sign).reshape(total.shape)
+        return {"total": total, "diff_x": diff_x, "diff_y": diff_y, "diff_z": diff_z, "diff": diff}
+
+    @staticmethod
+    def _validate_volumetric_dataset(grid: np.ndarray, data: np.ndarray, dataset_name: str) -> dict[str, np.ndarray]:
+        """Validate a volumetric dataset and return pymatgen-formatted data dict.
+
+        Args:
+            grid (np.ndarray): Grid dimensions stored alongside the dataset.
+            data (np.ndarray): Raw volumetric dataset read from HDF5.
+            dataset_name (str): Full dataset path used for error messages.
+
+        Returns:
+            dict[str, np.ndarray]: Volumetric data in pymatgen's standard key layout.
+        """
+        if data.ndim != 4:
+            raise ValueError(f"Expected {dataset_name} to have 4 dimensions, got shape {data.shape}.")
+        if tuple(grid.tolist()) != tuple(data.shape[1:][::-1]):
+            dataset_parent = dataset_name.rsplit("/", 1)[0]
+            grid_dataset_name = f"{dataset_parent}/grid"
+            raise ValueError(
+                f"{grid_dataset_name} {tuple(grid.tolist())} does not match {dataset_name} shape {data.shape[1:]}."
+            )
+
+        if data.shape[0] == 1:
+            return {"total": Vaspwave._transpose_volumetric_component(data[0])}
+        if data.shape[0] == 4:
+            return Vaspwave._build_noncollinear_volumetric_data(data)
+
+        raise NotImplementedError(f"Unsupported {dataset_name} component count {data.shape[0]}.")
+
+    def _read_validated_volumetric_dataset(self, grid_path: str, data_path: str, h5_file=None) -> dict[str, np.ndarray]:
+        """Read and validate a volumetric HDF5 dataset."""
+        grid = self._read_hdf5_dataset(grid_path, h5_file=h5_file)
+        data = self._read_hdf5_dataset(data_path, h5_file=h5_file)
+        return self._validate_volumetric_dataset(grid, data, data_path)
+
+    # -------------------------------------------------------------------------
+    # Coefficient conversion pipeline
+    # -------------------------------------------------------------------------
+    #
+    # ``vaspwave.h5`` stores serialized wavefunction rows that must be decoded
+    # into complex coefficients before they are exposed through the public API.
+    # ``Vaspwave`` keeps that raw/decode/canonical boundary explicit so public
+    # methods continue to return coefficients aligned with ``self.Gpoints``.
+    #
+    # For the currently supported data:
+    # - std and ncl rows already map onto the canonical coefficient layout
+    # - gamma-only rows still require symmetry completion
+    #
+    def _read_raw_band_coeffs(self, spin_index: int, kpoint_index: int, band_index: int, h5_file=None) -> np.ndarray:
+        """Read one raw band row from the HDF5 wave dataset."""
+        dataset_path = self._get_wave_dataset_path(spin_index, kpoint_index)
+        return self._read_hdf5_dataset_slice(dataset_path, (band_index, slice(None), slice(None)), h5_file=h5_file)
+
+    @staticmethod
+    def _decode_raw_band_coeffs(coeffs_re_im: np.ndarray) -> np.ndarray:
+        """Decode a raw ``(nplane, 2)`` HDF5 row into serialized complex coefficients."""
+        if coeffs_re_im.ndim != 2 or coeffs_re_im.shape[1] != 2:
+            raise ValueError("vaspwave.h5 wave coefficients must have shape (nplane, 2).")
+        return coeffs_re_im[:, 0] + 1j * coeffs_re_im[:, 1]
+
+    def _to_canonical_band_coeffs(self, coeffs: np.ndarray, kpoint_index: int) -> np.ndarray:
+        """Convert serialized HDF5 coefficients into canonical coefficients.
+
+        Args:
+            coeffs (np.ndarray): Serialized complex coefficients read from the
+                HDF5 ``wave`` dataset.
+            kpoint_index (int): Zero-based k-point index.
+
+        Returns:
+            np.ndarray: Canonical complex coefficients aligned with
+                ``self.Gpoints[kpoint_index]``.
+        """
+        if self.vasp_type == "ncl":
+            if len(coeffs) != 2 * len(self.Gpoints[kpoint_index]):
+                raise ValueError("Serialized ncl coefficients do not match the expected spinor-packed size.")
+            return np.array(coeffs, dtype=np.complex128).reshape((2, len(self.Gpoints[kpoint_index])))
+
+        if not self._gamma_only:
+            # `vhdf5.F` writes the HDF5 wave dataset after `MRG_PW_BAND`,
+            # matching the canonical coefficient layout exposed by Wavecar.
+            return np.array(coeffs, dtype=np.complex128)
+
+        coeffs = np.array(coeffs, copy=True)
+        extra_coeffs = []
+        for g_ind in self._gamma_extra_coeff_inds[kpoint_index]:
+            coeffs[g_ind] /= np.sqrt(2)
+            extra_coeffs.append(np.conj(coeffs[g_ind]))
+        return np.array(list(coeffs) + extra_coeffs, dtype=np.complex128)
+
+    def _build_mesh_from_coeffs(self, kpoint: int, coeffs: np.ndarray, shift: bool = True) -> np.ndarray:
+        """Place complex coefficients onto the FFT mesh for a given k-point."""
+        if self.Gpoints[kpoint] is None:
+            raise RuntimeError(f"G-points for kpoint {kpoint} have not been initialized.")
+        if len(coeffs) != len(self.Gpoints[kpoint]):
+            raise ValueError("Number of coefficients does not match the number of generated G-points.")
+
+        mesh = np.zeros(tuple(self.ng), dtype=np.complex128)
+        for gp, coeff in zip(self.Gpoints[kpoint], coeffs, strict=False):
+            t = tuple(gp.astype(int) + (self.ng / 2).astype(int))
+            mesh[t] = coeff
+        return np.fft.ifftshift(mesh) if shift else mesh
+
+    def _get_band_coeffs(self, spin_index: int, kpoint_index: int, band_index: int, h5_file=None) -> np.ndarray:
+        """Internal helper to read one band of canonical plane-wave coefficients."""
+        coeffs_re_im = self._read_raw_band_coeffs(spin_index, kpoint_index, band_index, h5_file=h5_file)
+        coeffs = self._decode_raw_band_coeffs(coeffs_re_im)
+        return self._to_canonical_band_coeffs(coeffs, kpoint_index)
+
+    def _fft_mesh(
+        self, kpoint: int, band: int, spin: int = 0, spinor: int = 0, shift: bool = True, h5_file=None
+    ) -> np.ndarray:
+        """Internal helper to place coefficients onto an FFT mesh."""
+        tcoeffs = self._get_band_coeffs(spin, kpoint, band, h5_file=h5_file)
+        if self.vasp_type == "ncl":
+            tcoeffs = tcoeffs[spinor]
+        return self._build_mesh_from_coeffs(kpoint, tcoeffs, shift=shift)
+
+    def _ifft_wavefunction(self, kpoint: int, band: int, spin: int = 0, spinor: int = 0, h5_file=None) -> np.ndarray:
+        """Reconstruct a real-space wavefunction on the current FFT grid."""
+        coeffs = self._get_band_coeffs(spin, kpoint, band, h5_file=h5_file)
+        if self.vasp_type == "ncl":
+            coeffs = coeffs[spinor]
+        N = np.prod(self.ng)
+        return np.fft.ifftn(self._build_mesh_from_coeffs(kpoint, coeffs)) * N
+
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
+    def get_band_coeffs(self, spin_index: int, kpoint_index: int, band_index: int) -> np.ndarray:
+        """Read a single band of plane-wave coefficients from ``vaspwave.h5``.
+
+        Note:
+            ``Vaspwave`` reads serialized band rows from the HDF5 dataset and
+            converts them into canonical coefficients exposed through the
+            ``Wavecar``-like public API. For std and ncl files, the HDF5 rows
+            already store the canonical coefficient layout written by VASP.
+            Gamma-only files reconstruct the symmetry-related coefficients
+            explicitly.
+
+        Args:
+            spin_index (int): Spin index. For spin-polarized std data,
+                ``0`` and ``1`` select the two collinear spin channels. For
+                gamma-only, spin-unpolarized std, and ncl data, only ``0`` is
+                supported.
+            kpoint_index (int): K-point index of the desired wavefunction.
+            band_index (int): Band index of the desired wavefunction.
+
+        Returns:
+            np.ndarray: Complex plane-wave coefficients for the requested
+                wavefunction.
+        """
+        if self.vasp_type not in {"gam", "std", "ncl"}:
+            raise NotImplementedError("Unsupported vaspwave.h5 type.")
+        if self.spin not in {1, 2}:
+            raise NotImplementedError("Unsupported vaspwave.h5 spin setting.")
+        spin_index = self._normalize_spin_index(spin_index)
+        kpoint_index, band_index = self._normalize_wave_indices(kpoint_index, band_index)
+        return self._get_band_coeffs(spin_index, kpoint_index, band_index)
+
+    def fft_mesh(
+        self,
+        kpoint: int,
+        band: int,
+        spin: int = 0,
+        spinor: int = 0,
+        shift: bool = True,
+    ) -> np.ndarray:
+        """Place supported ``vaspwave.h5`` coefficients onto an FFT mesh.
+
+        Args:
+            kpoint (int): K-point index of the desired wavefunction.
+            band (int): Band index of the desired wavefunction.
+            spin (int): Spin index. For spin-polarized std data, ``0`` and
+                ``1`` select the two collinear spin channels. For gamma-only,
+                spin-unpolarized std, and ncl data, only ``0`` is supported.
+            spinor (int): Spinor component index. Supported for ``ncl`` files;
+                otherwise only ``0`` is supported.
+            shift (bool): Whether to shift the zero-frequency component to the
+                origin of the FFT mesh.
+
+        Returns:
+            np.ndarray: Complex FFT mesh containing the wavefunction
+                coefficients.
+        """
+        spin, spinor = self._validate_spin_and_spinor_args(spin=spin, spinor=spinor)
+        kpoint, band = self._normalize_wave_indices(kpoint, band)
+        return self._fft_mesh(kpoint, band, spin=spin, spinor=spinor, shift=shift)
+
+    def evaluate_wavefunc(
+        self,
+        kpoint: int,
+        band: int,
+        r: np.ndarray,
+        spin: int = 0,
+        spinor: int = 0,
+    ) -> np.complex64:
+        """Evaluate a supported ``vaspwave.h5`` wavefunction at position ``r``.
+
+        Args:
+            kpoint (int): K-point index of the desired wavefunction.
+            band (int): Band index of the desired wavefunction.
+            r (np.ndarray): Real-space position at which to evaluate the
+                wavefunction.
+            spin (int): Spin index. For spin-polarized std data, ``0`` and
+                ``1`` select the two collinear spin channels. For gamma-only,
+                spin-unpolarized std, and ncl data, only ``0`` is supported.
+            spinor (int): Spinor component index. Supported for ``ncl`` files;
+                otherwise only ``0`` is supported.
+
+        Returns:
+            np.complex64: Wavefunction value evaluated at ``r``.
+        """
+        spin, spinor = self._validate_spin_and_spinor_args(spin=spin, spinor=spinor)
+        kpoint, band = self._normalize_wave_indices(kpoint, band)
+        v = self.Gpoints[kpoint] + self.kpoints[kpoint]
+        u = np.dot(np.dot(v, self.b), r)
+        coeffs = self.get_band_coeffs(spin, kpoint, band)
+        if self.vasp_type == "ncl":
+            coeffs = coeffs[spinor]
+        return np.sum(np.dot(coeffs, np.exp(1j * u, dtype=np.complex64))) / np.sqrt(self.vol)
+
+    def get_parchg(
+        self,
+        poscar: Poscar,
+        kpoint: int,
+        band: int,
+        spin: int | None = None,
+        spinor: int | None = None,
+        phase: bool = False,
+        scale: int = 2,
+    ) -> Chgcar:
+        """Generate a ``Chgcar`` object for supported ``vaspwave.h5`` data.
+
+        Note:
+            As with ``Wavecar.get_parchg()``, PAW augmentation is not included.
+
+        Args:
+            poscar (Poscar): Structure associated with the wavefunction data.
+            kpoint (int): K-point index of the desired wavefunction.
+            band (int): Band index of the desired wavefunction.
+            spin (int | None): Spin index. Only ``None`` and ``0`` are
+                supported.
+            spinor (int | None): Spinor component index. Supported for ``ncl``
+                files, where ``None`` returns the summed spinor density and
+                ``0`` or ``1`` returns a single spinor component. For non-NCL
+                files, this argument is accepted for ``Wavecar`` compatibility;
+                any provided value selects the single-component branch used by
+                ``Wavecar.get_parchg()``.
+            phase (bool): Whether to preserve the sign of the real part of the
+                wavefunction in the returned density.
+            scale (int): Scaling factor applied to the FFT grid.
+
+        Returns:
+            Chgcar: Partial charge density derived from the selected
+                wavefunction.
+        """
+        kpoint, band = self._normalize_wave_indices(kpoint, band)
+        if phase and not np.allclose(self.kpoints[kpoint], 0.0):
+            warnings.warn(
+                "phase is True should only be used for the Gamma kpoint! I hope you know what you're doing!",
+                stacklevel=2,
+            )
+
+        temp_ng = self.ng.copy()
+        self.ng = self.ng * scale
+        try:
+            with self._open_hdf5_file() as h5_file:
+                if self.spin == 2:
+                    if spin is not None:
+                        spin = self._normalize_spin_index(spin)
+                        wfr = self._ifft_wavefunction(kpoint, band, spin=spin, h5_file=h5_file)
+                        den = np.abs(np.conj(wfr) * wfr)
+                        if phase:
+                            den = np.sign(np.real(wfr)) * den
+                        return Chgcar(poscar, {"total": den})
+
+                    wfr_up = self._ifft_wavefunction(kpoint, band, spin=0, h5_file=h5_file)
+                    den_up = np.abs(np.conj(wfr_up) * wfr_up)
+                    wfr_dn = self._ifft_wavefunction(kpoint, band, spin=1, h5_file=h5_file)
+                    den_dn = np.abs(np.conj(wfr_dn) * wfr_dn)
+                    return Chgcar(poscar, {"total": den_up + den_dn, "diff": den_up - den_dn})
+
+                if self.vasp_type == "ncl":
+                    if spin not in (None, 0):
+                        raise NotImplementedError("Spin-resolved ncl vaspwave.h5 is not implemented yet.")
+
+                    if spinor is not None:
+                        spinor = self._normalize_index(spinor, 2, "Spinor")
+                        wfr = self._ifft_wavefunction(kpoint, band, spin=0, spinor=spinor, h5_file=h5_file)
+                        den = np.abs(np.conj(wfr) * wfr)
+                    else:
+                        wfr = self._ifft_wavefunction(kpoint, band, spin=0, spinor=0, h5_file=h5_file)
+                        wfr_t = self._ifft_wavefunction(kpoint, band, spin=0, spinor=1, h5_file=h5_file)
+                        den = np.abs(np.conj(wfr) * wfr)
+                        den += np.abs(np.conj(wfr_t) * wfr_t)
+
+                    if phase and spinor is not None:
+                        den = np.sign(np.real(wfr)) * den
+                    return Chgcar(poscar, {"total": den})
+
+                if spin not in (None, 0):
+                    raise NotImplementedError("Spin-resolved vaspwave.h5 is not implemented yet.")
+
+                wfr = self._ifft_wavefunction(kpoint, band, spin=0, h5_file=h5_file)
+                den = np.abs(np.conj(wfr) * wfr)
+                if spinor is None:
+                    # Match Wavecar's collinear branch, which sums both spinor
+                    # channels even though fft_mesh ignores spinor for std/gam.
+                    den += den
+                if phase:
+                    den = np.sign(np.real(wfr)) * den
+                return Chgcar(poscar, {"total": den})
+        finally:
+            self.ng = temp_ng
+
+    def get_chgcar(self) -> Chgcar:
+        """Read the native charge-density grid stored in ``/charge/charge``.
+
+        Returns:
+            Chgcar: Charge density object using the structure stored in
+            ``vaspwave.h5``.
+
+        Raises:
+            ValueError: If ``vaspwave.h5`` does not contain structure data.
+        """
+        data = self._read_validated_volumetric_dataset("/charge/grid", "/charge/charge")
+        return Chgcar(self._get_volumetric_poscar(), data)
+
+    def get_locpot(self) -> Locpot:
+        """Read the native local-potential grid stored in ``/locpot/total``.
+
+        Returns:
+            Locpot: Local potential object using the structure stored in
+            ``vaspwave.h5``.
+
+        Raises:
+            ValueError: If ``vaspwave.h5`` does not contain structure data.
+        """
+        data = self._read_validated_volumetric_dataset("/locpot/grid", "/locpot/total")
+        return Locpot(self._get_volumetric_poscar(), data)
+
+    def write_unks(self, directory: PathLike) -> None:
+        """Write supported ``vaspwave.h5`` wavefunctions to UNK files.
+
+        Note:
+            ``ISPIN=2`` std files currently write the expected pair of UNK
+            files, but their contents are not yet validated to be pointwise
+            identical to ``Wavecar.write_unks()`` for the local HDF5 sample.
+        """
+        out_dir = Path(directory).expanduser()
+        if not out_dir.exists():
+            out_dir.mkdir(parents=False)
+        elif not out_dir.is_dir():
+            raise ValueError("invalid directory")
+
+        with self._open_hdf5_file() as h5_file:
+            for ik in range(self.nk):
+                if self.vasp_type == "ncl":
+                    data = np.empty((self.nb, 2, *self.ng), dtype=np.complex128)
+                    for ib in range(self.nb):
+                        data[ib, 0, :, :, :] = self._ifft_wavefunction(ik, ib, spinor=0, h5_file=h5_file)
+                        data[ib, 1, :, :, :] = self._ifft_wavefunction(ik, ib, spinor=1, h5_file=h5_file)
+                    Unk(ik + 1, data).write_file(str(out_dir / f"UNK{ik + 1:05d}.NC"))
+                    continue
+
+                data = np.empty((self.nb, *self.ng), dtype=np.complex128)
+                for ispin in range(self.spin):
+                    for ib in range(self.nb):
+                        data[ib, :, :, :] = self._ifft_wavefunction(ik, ib, spin=ispin, h5_file=h5_file)
+                    Unk(ik + 1, data).write_file(str(out_dir / f"UNK{ik + 1:05d}.{ispin + 1}"))
 
 
 @requires(h5py is not None, "h5py must be installed to read vaspout.h5")

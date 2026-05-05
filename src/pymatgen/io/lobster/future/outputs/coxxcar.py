@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Sequence
 from itertools import islice
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
@@ -15,6 +16,8 @@ if TYPE_CHECKING:
     from typing import ClassVar, Literal
 
     from numpy.typing import NDArray
+
+    from pymatgen.io.lobster.future.types import LobsterInteractionData
 
 
 class COXXCAR(LobsterInteractionsHolder):
@@ -101,21 +104,21 @@ class COXXCAR(LobsterInteractionsHolder):
 
             centers = bond_data.split("->")
             for center in centers:
-                if match := re.search(self.interactions_regex, center):
-                    match = match.groups()
-                    bond_tmp["centers"].append(match[0])
+                if m := re.search(self.interactions_regex, center):
+                    grps = m.groups()
+                    bond_tmp["centers"].append(grps[0])
                 else:
                     raise ValueError(f"Could not parse interaction from line: {line}")
 
-                if match[1]:
-                    bond_tmp["cells"].append([int(x) for x in match[1].split()])
+                if grps[1]:
+                    bond_tmp["cells"].append([int(x) for x in grps[1].split()])
                 else:
                     bond_tmp["cells"].append([])
 
-                bond_tmp["orbitals"].append(match[2])
+                bond_tmp["orbitals"].append(grps[2])
 
-                if match[3]:
-                    length = float(match[3])
+                if grps[3]:
+                    length = float(grps[3])
 
             bond = {
                 "index": int(bond_index),
@@ -125,7 +128,7 @@ class COXXCAR(LobsterInteractionsHolder):
                 "length": length,
             }
 
-            self.interactions.append(bond)
+            self.interactions.append(cast("LobsterInteractionData", bond))
 
     def parse_data(self) -> None:
         """Parse the numerical data block into `self.data` and validate shape.
@@ -143,6 +146,9 @@ class COXXCAR(LobsterInteractionsHolder):
             loose=False,
         )
 
+        if self.spins is None:
+            raise ValueError("COXXCAR spin channels were not set before reading numerical data.")
+
         if self.data.shape != (self.num_data, self.num_bonds * 2 * len(self.spins) + 1):
             raise ValueError(
                 f"Data shape {self.data.shape} does not match expected shape "
@@ -156,6 +162,9 @@ class COXXCAR(LobsterInteractionsHolder):
 
         Assigns numpy views into `self.data` for each spin channel.
         """
+        if self.spins is None:
+            raise ValueError("COXXCAR spin channels were not set before populating interaction data.")
+
         for i, interaction in enumerate(self.interactions):
             real_indices = self.interaction_indices_to_data_indices_mapping(
                 i,
@@ -187,7 +196,7 @@ class COXXCAR(LobsterInteractionsHolder):
         cells: list[list[int]] | None = None,
         orbitals: list[str] | None = None,
         length: tuple[float, float] | None = None,
-        spins: list[Literal[1, -1]] | None = None,
+        spins: list[Spin] | None = None,
         data_type: Literal["coxx", "icoxx"] | None = None,
     ) -> list[int]:
         """Return data-column indices matching the provided interaction properties.
@@ -204,6 +213,7 @@ class COXXCAR(LobsterInteractionsHolder):
         Returns:
             list[int]: Sorted list of data column indices that match the filters.
         """
+        effective_spins = spins if spins is not None else self.spins
         return self.interaction_indices_to_data_indices_mapping(
             sorted(
                 self.get_interaction_indices_by_properties(
@@ -214,7 +224,7 @@ class COXXCAR(LobsterInteractionsHolder):
                     length,
                 )
             ),
-            spins=spins or self.spins,
+            spins=effective_spins,
             data_type=data_type,
         )
 
@@ -225,7 +235,7 @@ class COXXCAR(LobsterInteractionsHolder):
         cells: list[list[int]] | None = None,
         orbitals: list[str] | None = None,
         length: tuple[float, float] | None = None,
-        spins: list[Literal[1, -1]] | None = None,
+        spins: list[Spin] | None = None,
         data_type: Literal["coxx", "icoxx"] | None = None,
     ) -> NDArray[np.floating]:
         """Return the data columns matching the provided interaction properties.
@@ -243,13 +253,13 @@ class COXXCAR(LobsterInteractionsHolder):
             np.ndarray: Array with shape (n_energies, n_selected_columns).
         """
         bond_indices = self.get_interaction_indices_by_properties(indices, centers, cells, orbitals, length)
-        spins = spins or self.spins
+        effective_spins = spins if spins is not None else self.spins
 
         return self.data[
             :,
             self.interaction_indices_to_data_indices_mapping(
                 bond_indices,
-                spins=spins,
+                spins=effective_spins,
                 data_type=data_type,
             ),
         ]
@@ -257,14 +267,14 @@ class COXXCAR(LobsterInteractionsHolder):
     def interaction_indices_to_data_indices_mapping(
         self,
         interaction_indices: int | list[int],
-        spins: Literal[1, -1] | list[Literal[1, -1]] | None = None,
+        spins: Spin | int | Sequence[Spin | int] | None = None,
         data_type: Literal["coxx", "icoxx"] | None = None,
     ) -> list[int]:
         """Map interaction indices to column indices in `self.data`.
 
         Args:
             interaction_indices (int | list[int]): Single index or list of interaction indices.
-            spins (Spin | list[Spin] | None): Spin(s) to include.
+            spins (Spin | int | Sequence[Spin | int] | None): Spin(s) to include.
             data_type (Literal["coxx", "icoxx"] | None): Select columns of that type.
 
         Returns:
@@ -274,17 +284,34 @@ class COXXCAR(LobsterInteractionsHolder):
             ValueError: If an invalid Spin is requested.
         """
         if spins is None:
-            spins = self.spins
+            spins_list = list(self.spins) if self.spins is not None else []
+        elif isinstance(spins, Sequence) and not isinstance(spins, (str, bytes)):
+            spins_list = []
+            for s in spins:
+                if isinstance(s, Spin):
+                    spins_list.append(s)
+                elif isinstance(s, int) and not isinstance(s, bool):
+                    spins_list.append(Spin(s))
+                else:
+                    raise TypeError(f"Expected Spin or int spin channel, got {type(s).__name__}")
+        elif isinstance(spins, int) and not isinstance(spins, bool):
+            spins_list = [Spin(spins)]
+        elif isinstance(spins, Spin):
+            spins_list = [spins]
+        else:
+            raise TypeError(f"Invalid spins argument type: {type(spins).__name__}")
 
-        if spins in (1, -1):
-            spins = [spins]
+        if not spins_list:
+            raise ValueError("No spin channels available for column mapping.")
+
         if isinstance(interaction_indices, int):
             interaction_indices = [interaction_indices]
 
-        if set(spins) - set(self.spins):
-            raise ValueError(f"Requested `Spin` {spins} is not valid. Valid `Spin`s are: {self.spins}.")
+        file_spins = self.spins or []
+        if set(spins_list) - set(file_spins):
+            raise ValueError(f"Requested `Spin` {spins_list} is not valid. Valid `Spin`s are: {file_spins}.")
 
-        index_range = np.arange(0, self.num_bonds * 2 * len(spins) + 1)
+        index_range = np.arange(0, self.num_bonds * 2 * len(spins_list) + 1)
 
         if data_type == "icoxx":
             index_range = index_range[1::2]
@@ -295,7 +322,7 @@ class COXXCAR(LobsterInteractionsHolder):
         for bond_index in interaction_indices:
             real_indices.extend([bond_index * 2 + 1, bond_index * 2 + 2])
 
-            if Spin.down in spins:
+            if Spin.down in spins_list:
                 real_indices.extend(
                     [
                         (self.num_bonds + bond_index) * 2 + 1,

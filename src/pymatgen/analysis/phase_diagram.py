@@ -10,7 +10,7 @@ import re
 import warnings
 from collections import defaultdict
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -87,7 +87,7 @@ class PDEntry(Entry):
                 to the reduced chemical formula.
             attribute: Optional attribute of the entry. Must be MSONable.
         """
-        super().__init__(composition, energy)
+        super().__init__(cast("Composition | str | dict[str, float]", composition), energy)
         self.name = name or self.reduced_formula
         self.attribute = attribute
 
@@ -440,7 +440,9 @@ class PhaseDiagram(MSONable):
         """
         try:
             computed_data = dct.get("computed_data")
-            elements = [Element(elem) for elem in dct["elements"]]
+            elements = [
+                Element.from_dict(elem) if isinstance(elem, dict) else Element(elem) for elem in dct["elements"]
+            ]
 
             # for backwards compatibility, check for old format
             if "all_entries" in dct:
@@ -484,8 +486,13 @@ class PhaseDiagram(MSONable):
         if isinstance(computed_data.get("qhull_data"), dict):
             computed_data["qhull_data"] = decoder.process_decoded(computed_data["qhull_data"])
 
-        # Convert qhull_entries from indices to actual entries
-        computed_data["qhull_entries"] = [entries[i] for i in computed_data["qhull_entries"]]
+        if all(isinstance(entry, dict) for entry in computed_data["qhull_entries"]):
+            computed_data["qhull_entries"] = [
+                decoder.process_decoded(entry) for entry in computed_data["qhull_entries"]
+            ]
+        else:
+            # Convert qhull_entries from indices to actual entries
+            computed_data["qhull_entries"] = [entries[i] for i in computed_data["qhull_entries"]]
 
         # Legacy el_refs stored as list of [Element_dict, Entry_dict] pairs
         el_refs_raw = computed_data.get("el_refs", [])

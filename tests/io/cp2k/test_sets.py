@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import warnings
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -11,6 +13,8 @@ from pymatgen.io.cp2k.sets import SETTINGS, Cp2kValidationError, DftSet, Gaussia
 from pymatgen.util.testing import TEST_FILES_DIR, MatSciTest
 
 CP2K_TEST_DIR = f"{TEST_FILES_DIR}/io/cp2k"
+# Local test-files dir (independent of the installed package's TEST_FILES_DIR).
+LOCAL_CP2K_TEST_DIR = Path(__file__).parent.parent.parent.parent / "test-files" / "io" / "cp2k"
 
 Si_structure = Structure(
     lattice=[[0, 2.734364, 2.734364], [2.734364, 0, 2.734364], [2.734364, 2.734364, 0]],
@@ -210,3 +214,54 @@ class TestDftSet(MatSciTest):
         cell_section = subsys["cell"]
         assert not cell_section.check("symmetry")
         assert not cell_section.check("multiple_unit_cell")
+
+    def test_no_yaml_unsafe_deprecation_warning(self) -> None:
+        """Regression test for https://github.com/materialsproject/pymatgen-core/issues/4444.
+
+        Loading CP2K element data files must not emit a PendingDeprecationWarning
+        about ruamel.yaml's deprecated 'unsafe' loader type.
+        """
+        SETTINGS["PMG_CP2K_DATA_DIR"] = str(LOCAL_CP2K_TEST_DIR)
+        basis_and_potential: dict[str, str | dict] = {
+            "basis_type": "SZV",
+            "potential_type": "Pseudopotential",
+            "functional": None,
+        }
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", PendingDeprecationWarning)
+            # Constructing DftSet with a data dir triggers YAML loading of the
+            # per-element files (e.g. test-files/io/cp2k/Si). The old code used
+            # YAML(typ="unsafe") which raises a PendingDeprecationWarning from
+            # ruamel.yaml. After the fix this must not raise.
+            DftSet(Si_structure, basis_and_potential=basis_and_potential, xc_functionals="PBE")
+
+    def test_yaml_data_loading_roundtrip(self) -> None:
+        """CP2K element data files use MSONable-format YAML (no unsafe Python tags).
+
+        Verify that the data can be loaded with the default (safe) ruamel.yaml
+        loader and that the resulting dicts reconstruct valid objects.
+        """
+        from ruamel.yaml import YAML
+
+        si_file = LOCAL_CP2K_TEST_DIR / "Si"
+        yaml = YAML()
+        with open(si_file, encoding="utf-8") as fh:
+            data = yaml.load(fh)
+
+        assert "basis_sets" in data
+        assert "potentials" in data
+
+        # Reconstruct a GaussianTypeOrbitalBasisSet from the YAML data
+        basis_hash = next(iter(data["basis_sets"]))
+        basis = GaussianTypeOrbitalBasisSet.from_dict(data["basis_sets"][basis_hash])
+        assert isinstance(basis, GaussianTypeOrbitalBasisSet)
+        assert basis.element is not None
+        assert basis.name is not None
+
+        # Reconstruct a GthPotential from the YAML data
+        pot_hash = next(iter(data["potentials"]))
+        potential = GthPotential.from_dict(data["potentials"][pot_hash])
+        assert isinstance(potential, GthPotential)
+        assert potential.element is not None
+        assert potential.name is not None

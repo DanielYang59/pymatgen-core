@@ -66,3 +66,13 @@ class TestChargemolAnalysis:
         assert ca.summary["ddec"]["spin_moments"] == ca.ddec_spin_moments
         assert ca.natoms is None
         assert ca.structure is None
+
+
+class TestGetFilepath:
+    def test_finds_gz(self, tmp_path):
+        (tmp_path / "CHGCAR.gz").touch()
+        result = ChargemolAnalysis._get_filepath(str(tmp_path), "CHGCAR")
+        assert result == str(tmp_path / "CHGCAR.gz")
+
+    def test_returns_none_when_absent(self, tmp_path):
+        assert ChargemolAnalysis._get_filepath(str(tmp_path), "CHGCAR") is None

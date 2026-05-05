@@ -8,7 +8,7 @@ Extracts Mulliken and Loewdin charges and gross populations for further analysis
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pymatgen.electronic_structure.core import Spin
 from pymatgen.io.lobster.future.core import LobsterFile
@@ -48,8 +48,8 @@ class CHARGE(LobsterFile):
         self.loewdin = []
 
         for line in self.iterate_lines():
-            if data := re.search(self.charge_regex, line):
-                data = data.groups()
+            if m := re.search(self.charge_regex, line):
+                data = m.groups()
                 self.centers.append(data[1] + data[0])
 
                 if self.is_lcfo:
@@ -122,7 +122,7 @@ class GROSSPOP(LobsterFile):
                 line,
             ):
                 groups = data.groups()
-                populations = {}
+                populations: dict[Spin, dict[Literal["mulliken", "loewdin"], float]] = {}
                 if groups[0] is not None and groups[1] is not None:
                     current_atom = groups[1] + groups[0]
                     self.populations[current_atom] = {}

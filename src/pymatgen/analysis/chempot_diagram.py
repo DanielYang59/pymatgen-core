@@ -228,7 +228,7 @@ class ChemicalPotentialDiagram(MSONable):
 
     def _get_border_hyperplanes(self) -> np.ndarray:
         """Get an array of the bounding hyperplanes given by elemental limits."""
-        border_hyperplanes = np.array([[0] * (self.dim + 1)] * (2 * self.dim))
+        border_hyperplanes = np.array([[0.0] * (self.dim + 1)] * (2 * self.dim))
 
         for idx, limit in enumerate(self.lims):
             border_hyperplanes[2 * idx, idx] = -1

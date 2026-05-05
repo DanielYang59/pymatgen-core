@@ -8,7 +8,6 @@ import warnings
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.spatial import Voronoi
 
@@ -18,6 +17,8 @@ from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from .local_env import JmolNN, VoronoiNN
 
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+
     from pymatgen.core import Structure
 
 __author__ = "Shyue Ping Ong, Geoffroy Hautier, Sai Jayaraman"
@@ -144,7 +145,7 @@ class VoronoiAnalyzer:
         return sorted(voro_dict.items(), key=lambda x: (x[1], x[0]), reverse=True)[:most_frequent_polyhedra]
 
     @staticmethod
-    def plot_vor_analysis(voronoi_ensemble: list[tuple[str, float]]) -> plt.Axes:
+    def plot_vor_analysis(voronoi_ensemble: list[tuple[str, float]]) -> Axes:
         """Plot the Voronoi analysis.
 
         Args:
@@ -152,8 +153,10 @@ class VoronoiAnalyzer:
                 values for Voronoi analysis.
 
         Returns:
-            plt.Axes: Matplotlib Axes object with the plotted Voronoi analysis.
+            Axes: Matplotlib Axes object with the plotted Voronoi analysis.
         """
+        import matplotlib.pyplot as plt  # Lazy import: only used in this method
+
         labels, val = zip(*voronoi_ensemble, strict=True)
         arr = np.array(val, dtype=float)
         arr /= np.sum(arr)

@@ -330,8 +330,8 @@ class TestBztPlotter:
         fig = self.bztPlotter.plot_props("S", "mu", "temp", temps=[300, 500])
         assert fig is not None
 
-        fig = self.bztPlotter.plot_bands()
+        fig = self.bztPlotter.plot_bands().get_plot()
         assert fig is not None
 
-        fig = self.bztPlotter.plot_dos()
+        fig = self.bztPlotter.plot_dos().get_plot()
         assert fig is not None

@@ -4,6 +4,7 @@ import itertools
 import json
 import math
 import os
+import warnings
 from fractions import Fraction
 from pathlib import Path
 from shutil import which
@@ -1677,6 +1678,63 @@ class TestStructure(MatSciTest):
         Path(filename := f"{self.tmp_path}/bad.extension").write_text(self.struct.to(fmt="json"), encoding="utf-8")
         with pytest.raises(ValueError, match="Unrecognized extension in filename="):
             self.struct.from_file(filename=filename)
+
+    def test_filter_kwargs_passthrough_when_var_keyword(self):
+        # func that accepts **kwargs: all kwargs returned unchanged, no warning
+        def accepts_var(**kwargs):
+            pass
+
+        result = Structure._filter_kwargs(accepts_var, {"foo": 1, "bar": 2})
+        assert result == {"foo": 1, "bar": 2}
+
+    def test_filter_kwargs_filters_unsupported_and_warns(self):
+        def strict(a, b=0):
+            pass
+
+        with pytest.warns(UserWarning, match="unsupported_key"):
+            result = Structure._filter_kwargs(strict, {"a": 1, "unsupported_key": 99})
+        assert result == {"a": 1}
+        assert "unsupported_key" not in result
+
+    def test_filter_kwargs_all_supported_no_warning(self):
+        def strict(a, b=0):
+            pass
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = Structure._filter_kwargs(strict, {"a": 1, "b": 2})
+        assert result == {"a": 1, "b": 2}
+
+    def test_filter_kwargs_empty_no_warning(self):
+        def strict(a):
+            pass
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            result = Structure._filter_kwargs(strict, {})
+        assert result == {}
+
+    @pytest.mark.parametrize("fmt", ["cif", "poscar", "cssr", "xsf", "res", "pwmat"])
+    def test_from_str_unsupported_kwarg_warns(self, fmt):
+        struct_str = self.struct.to(fmt=fmt)
+        with pytest.warns(UserWarning, match="unsupported_kwarg"):
+            result = Structure.from_str(struct_str, fmt=fmt, unsupported_kwarg="bad")
+        assert result.formula == self.struct.formula
+
+    @pytest.mark.parametrize("fmt", ["cif", "poscar", "cssr", "xsf", "res", "pwmat"])
+    def test_from_str_no_warning_without_extra_kwargs(self, fmt):
+        struct_str = self.struct.to(fmt=fmt)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            Structure.from_str(struct_str, fmt=fmt)
+
+    def test_from_str_cif_supported_kwarg_no_warning(self):
+        # frac_tolerance is a real CifParser.from_str kwarg — should not warn
+        cif_str = self.struct.to(fmt="cif")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            result = Structure.from_str(cif_str, fmt="cif", frac_tolerance=0.01)
+        assert result.formula == self.struct.formula
 
     def test_from_spacegroup(self):
         s1 = Structure.from_spacegroup("Fm-3m", Lattice.cubic(3), ["Li", "O"], [[0.25, 0.25, 0.25], [0, 0, 0]])

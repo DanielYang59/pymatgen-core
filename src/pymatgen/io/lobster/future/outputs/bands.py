@@ -281,12 +281,15 @@ class Fatbands(MSONable):
         full_kpoints = Kpoints.from_file(self.directory / kpoints_file)
 
         if full_kpoints.kpts_weights is not None:
+            label_seq: list[str | None] = (
+                list(full_kpoints.labels) if full_kpoints.labels is not None else [None] * len(full_kpoints.kpts)
+            )
             filtered_data = [
                 (k, w, n)
                 for k, w, n in zip(
                     full_kpoints.kpts,
                     full_kpoints.kpts_weights,
-                    (full_kpoints.labels or [None] * len(full_kpoints.kpts)),
+                    label_seq,
                     strict=True,
                 )
                 if w == 0

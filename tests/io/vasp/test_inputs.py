@@ -53,7 +53,7 @@ _SUMM_STATS = _gen_potcar_summary_stats(append=False, vasp_psp_dir=str(FAKE_POTC
 def _mock_complete_potcar_summary_stats(monkeypatch: pytest.MonkeyPatch) -> None:
     # Override POTCAR library to use fake scrambled POTCARs
     monkeypatch.setitem(SETTINGS, "PMG_VASP_PSP_DIR", str(FAKE_POTCAR_DIR))
-    monkeypatch.setattr(PotcarSingle, "_potcar_summary_stats", _SUMM_STATS)
+    monkeypatch.setattr("pymatgen.io.vasp.inputs._load_potcar_summary_stats", lambda: _SUMM_STATS)
 
     # The fake POTCAR library is pretty big even with just a few sub-libraries
     # just copying over entries to work with PotcarSingle.is_valid
@@ -2001,6 +2001,24 @@ class TestVaspInput(MatSciTest):
         assert vis_potcar_spec.incar["NSW"] == 99
         vis_potcar_spec.incar["NSW"] = 100
         assert vis_potcar_spec.incar["NSW"] == 100
+
+    def test_as_from_dict_potcar_spec(self):
+        vis_potcar_spec = VaspInput(
+            self.vasp_input.incar,
+            self.vasp_input.kpoints,
+            self.vasp_input.poscar,
+            "\n".join(self.vasp_input.potcar.symbols),
+            potcar_spec=True,
+        )
+        # as_dict should not raise when potcar_spec=True
+        dct = vis_potcar_spec.as_dict()
+
+        # round-trip should preserve potcar_spec structure
+        roundtripped = VaspInput.from_dict(dct)
+        assert {*roundtripped} == {"INCAR", "KPOINTS", "POSCAR", "POTCAR.spec"}
+        assert isinstance(roundtripped.potcar, str)
+        assert roundtripped["POTCAR.spec"] == vis_potcar_spec["POTCAR.spec"]
+        assert roundtripped["INCAR"] == vis_potcar_spec["INCAR"]
 
 
 def test_potcar_summary_stats() -> None:

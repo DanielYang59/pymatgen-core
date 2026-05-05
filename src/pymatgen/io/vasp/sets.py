@@ -900,7 +900,7 @@ class VaspInputSet(InputGenerator, abc.ABC):
         zero_weighted_kpoints = None
         if kconfig.get("zero_weighted_line_density"):
             # zero_weighted k-points along line mode path
-            kpath = HighSymmKpath(self.structure)
+            kpath = HighSymmKpath(self.structure, **kconfig.get("kpath_kwargs", {}))
             frac_k_points, k_points_labels = kpath.get_kpoints(
                 line_density=kconfig["zero_weighted_line_density"],
                 coords_are_cartesian=False,

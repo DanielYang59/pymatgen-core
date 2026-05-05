@@ -253,7 +253,8 @@ class LobsterFile(MSONable):
         Returns:
             bool: True if multiple spins are present, False otherwise.
         """
-        return self.has_spin and len(self.spins) > 1
+        spins = self.spins
+        return spins is not None and len(spins) > 1
 
 
 class LobsterInteractionsHolder(LobsterFile):
