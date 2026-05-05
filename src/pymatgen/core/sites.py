@@ -94,15 +94,16 @@ class Site(collections.abc.Hashable, MSONable):
             super().__setattr__(attr, value)
         elif isinstance(getattr(type(self), attr, None), property):
             # If the attribute is a property, set it using the property setter
-            getattr(type(self), attr).fset(self, value)  # type: ignore
+            getattr(type(self), attr).fset(self, value)  # type: ignore[union-attr]
         elif attr in self.__dict__:
             # If the attribute already exists on the instance, set it directly on the instance
             super().__setattr__(attr, value)
         else:
             warnings.warn(
-                f"Setting attribute {attr} on {type(self).__name__} is deprecated and will be disallowed in a future version."
-                f" Please set this attribute on the 'properties' dict instead, e.g. site.properties['{attr}'] = {value!r}"
-                f" or use the structure.add_site_property('{attr}', {value!r}) method to add this property to all sites in a structure.",
+                f"Setting attribute {attr} on {type(self).__name__} is deprecated and will be disallowed in a "
+                f"future version. Please set this attribute on the 'properties' dict instead, e.g. "
+                f"site.properties['{attr}'] = {value!r} or use the "
+                f"structure.add_site_property('{attr}', {value!r}) method to add this property to all sites.",
                 DeprecationWarning,
                 stacklevel=2,
             )

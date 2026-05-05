@@ -243,7 +243,7 @@ class TestPeriodicSite(MatSciTest):
     def test_property_setattr_routes_to_properties(self):
         """Setting an arbitrary attribute on a site should store it in site.properties,
         not as a bare instance attribute, so it survives from_sites / get_sorted_structure."""
-        
+
         site = PeriodicSite("Fe", [0.25, 0.35, 0.45], self.lattice)
 
         # Assignment via attribute syntax must land in .properties
