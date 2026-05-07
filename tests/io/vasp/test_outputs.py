@@ -2466,6 +2466,11 @@ class TestVaspwave(MatSciTest):
             del h5_file["structure"]
 
     @staticmethod
+    def _remove_vaspwave_wave_group(filename: str | Path) -> None:
+        with h5py.File(filename, "a") as h5_file:
+            del h5_file["wave"]
+
+    @staticmethod
     def _move_vaspwave_structure_to_locpot(filename: str | Path) -> None:
         with h5py.File(filename, "a") as h5_file:
             locpot_position = h5_file["locpot"].create_group("position")
@@ -2595,6 +2600,36 @@ class TestVaspwave(MatSciTest):
         assert vaspwave.nk == 1
         assert vaspwave.nb == 2
         assert_allclose(vaspwave.a, np.diag([2.0, 3.0, 4.0]))
+
+    def test_parse_minimal_vaspwave_h5_without_wave_group(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        self._remove_vaspwave_wave_group(filename)
+
+        vaspwave = Vaspwave(filename)
+
+        assert not vaspwave._has_wavefunction_data
+        assert vaspwave.structure.reduced_formula == "H2"
+        assert vaspwave.version == {"major": 6, "minor": 6, "patch": 0}
+
+        chgcar = vaspwave.get_chgcar()
+        locpot = vaspwave.get_locpot()
+
+        assert chgcar.structure == vaspwave.structure
+        assert chgcar.dim == (2, 3, 4)
+        assert locpot.structure == vaspwave.structure
+        assert locpot.dim == (2, 3, 4)
+
+        with pytest.raises(ValueError, match="does not contain wavefunction data"):
+            vaspwave.get_band_coeffs(0, 0, 0)
+        with pytest.raises(ValueError, match="does not contain wavefunction data"):
+            vaspwave.fft_mesh(0, 0)
+        with pytest.raises(ValueError, match="does not contain wavefunction data"):
+            vaspwave.evaluate_wavefunc(0, 0, np.array([0.0, 0.0, 0.0]))
+        with pytest.raises(ValueError, match="does not contain wavefunction data"):
+            vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0)
+        with pytest.raises(ValueError, match="does not contain wavefunction data"):
+            vaspwave.write_unks(Path(self.tmp_path) / "unks_without_wave")
 
     def test_parse_minimal_vaspwave_h5_with_locpot_structure(self):
         filename = Path(self.tmp_path) / "vaspwave.h5"

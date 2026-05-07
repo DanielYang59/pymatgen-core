@@ -6058,12 +6058,15 @@ class Vaspwave(Vasprun):
 
     This class is intended as an HDF5-native companion to Wavecar. The current
     implementation supports gamma-only, std, and ncl wavefunction access with a
-    public interface that matches Wavecar where practical.
+    public interface that matches Wavecar where practical. Files without a
+    ``/wave`` group can still be used to read native charge-density and
+    local-potential grids.
     """
 
     def __init__(self, filename: str | Path) -> None:
         self.filename = str(filename)
         self._wave_path_map: dict[tuple[int, int], str] = {}
+        self._has_wavefunction_data = False
         self._gamma_only = False
         self._C = 0.262465831
         self._parse()
@@ -6097,13 +6100,21 @@ class Vaspwave(Vasprun):
         """
         with zopen(self.filename, "rb") as vwave_file, h5py.File(vwave_file, "r") as h5_file:
             version = self._parse_hdf5_value(h5_file["version"])
-            wave_group = h5_file["wave"]
             structure = self._parse_hdf5_structure(h5_file)
+            if "wave" not in h5_file:
+                return {
+                    "version": version,
+                    "structure": structure,
+                    "has_wavefunction_data": False,
+                }
+
+            wave_group = h5_file["wave"]
             self._register_wave_paths(wave_group)
 
             return {
                 "version": version,
                 "structure": structure,
+                "has_wavefunction_data": True,
                 "spin": int(self._parse_hdf5_value(wave_group["rispin"])),
                 "nk": int(self._parse_hdf5_value(wave_group["rnkpts"])),
                 "nb": int(self._parse_hdf5_value(wave_group["rnb_tot"])),
@@ -6170,6 +6181,11 @@ class Vaspwave(Vasprun):
                 ``_parse_file_metadata()``.
         """
         self.version = metadata["version"]
+        self.structure = metadata["structure"]
+        self._has_wavefunction_data = metadata["has_wavefunction_data"]
+        if not self._has_wavefunction_data:
+            return
+
         self.spin = metadata["spin"]
         self.nk = metadata["nk"]
         self.nb = metadata["nb"]
@@ -6177,7 +6193,6 @@ class Vaspwave(Vasprun):
         self.efermi = metadata["efermi"]
         self.a = metadata["a"]
         self.b, self.vol = self._compute_reciprocal_lattice_and_volume(self.a)
-        self.structure = metadata["structure"]
         self._initialize_kpoint_state()
         self._initialize_reconstruction_state()
 
@@ -6307,6 +6322,11 @@ class Vaspwave(Vasprun):
                 "structure manually by setting vaspwave.structure before calling this method."
             )
         return self.structure
+
+    def _require_wavefunction_data(self) -> None:
+        """Raise a clear error if this file does not contain wavefunction data."""
+        if not self._has_wavefunction_data:
+            raise ValueError("vaspwave.h5 does not contain wavefunction data at /wave.")
 
     @staticmethod
     def _compute_reciprocal_lattice_and_volume(a: np.ndarray) -> tuple[np.ndarray, float]:
@@ -6615,6 +6635,7 @@ class Vaspwave(Vasprun):
             np.ndarray: Complex plane-wave coefficients for the requested
                 wavefunction.
         """
+        self._require_wavefunction_data()
         if self.vasp_type not in {"gam", "std", "ncl"}:
             raise NotImplementedError("Unsupported vaspwave.h5 type.")
         if self.spin not in {1, 2}:
@@ -6648,6 +6669,7 @@ class Vaspwave(Vasprun):
             np.ndarray: Complex FFT mesh containing the wavefunction
                 coefficients.
         """
+        self._require_wavefunction_data()
         spin, spinor = self._validate_spin_and_spinor_args(spin=spin, spinor=spinor)
         kpoint, band = self._normalize_wave_indices(kpoint, band)
         return self._fft_mesh(kpoint, band, spin=spin, spinor=spinor, shift=shift)
@@ -6676,6 +6698,7 @@ class Vaspwave(Vasprun):
         Returns:
             np.complex64: Wavefunction value evaluated at ``r``.
         """
+        self._require_wavefunction_data()
         spin, spinor = self._validate_spin_and_spinor_args(spin=spin, spinor=spinor)
         kpoint, band = self._normalize_wave_indices(kpoint, band)
         v = self.Gpoints[kpoint] + self.kpoints[kpoint]
@@ -6720,6 +6743,7 @@ class Vaspwave(Vasprun):
             Chgcar: Partial charge density derived from the selected
                 wavefunction.
         """
+        self._require_wavefunction_data()
         kpoint, band = self._normalize_wave_indices(kpoint, band)
         if phase and not np.allclose(self.kpoints[kpoint], 0.0):
             warnings.warn(
@@ -6813,6 +6837,7 @@ class Vaspwave(Vasprun):
             files, but their contents are not yet validated to be pointwise
             identical to ``Wavecar.write_unks()`` for the local HDF5 sample.
         """
+        self._require_wavefunction_data()
         out_dir = Path(directory).expanduser()
         if not out_dir.exists():
             out_dir.mkdir(parents=False)
