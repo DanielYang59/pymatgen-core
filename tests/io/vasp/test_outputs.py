@@ -2466,6 +2466,22 @@ class TestVaspwave(MatSciTest):
             del h5_file["structure"]
 
     @staticmethod
+    def _move_vaspwave_structure_to_locpot(filename: str | Path) -> None:
+        with h5py.File(filename, "a") as h5_file:
+            locpot_position = h5_file["locpot"].create_group("position")
+            for key, value in h5_file["structure"]["positions"].items():
+                locpot_position.copy(value, key)
+            del h5_file["structure"]
+
+    @staticmethod
+    def _make_locpot_structure_inconsistent(filename: str | Path) -> None:
+        with h5py.File(filename, "a") as h5_file:
+            locpot_position = h5_file["locpot"].create_group("position")
+            for key, value in h5_file["structure"]["positions"].items():
+                locpot_position.copy(value, key)
+            locpot_position["position_ions"][0, 0] = 0.125
+
+    @staticmethod
     def _write_vaspwave_h5_from_wavecar(
         filename: str | Path,
         wavecar: Wavecar,
@@ -2560,10 +2576,9 @@ class TestVaspwave(MatSciTest):
         assert len(vaspwave.band_energy) == 1
         assert_allclose(vaspwave.band_energy[0], [[1.5, 0.0, 1.0], [2.5, -0.25, 0.0]])
         assert vaspwave.num_planewaves == [3]
-        assert vaspwave.initial_structure.reduced_formula == "H2"
-        assert vaspwave.final_structure == vaspwave.initial_structure
-        assert_allclose(vaspwave.initial_structure.lattice.matrix, np.diag([2.0, 3.0, 4.0]))
-        assert_allclose(vaspwave.initial_structure.frac_coords, [[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]])
+        assert vaspwave.structure.reduced_formula == "H2"
+        assert_allclose(vaspwave.structure.lattice.matrix, np.diag([2.0, 3.0, 4.0]))
+        assert_allclose(vaspwave.structure.frac_coords, [[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]])
         assert vaspwave._gamma_only is True
         assert vaspwave.vasp_type == "gam"
         assert vaspwave.version == {"major": 6, "minor": 6, "patch": 0}
@@ -2575,12 +2590,30 @@ class TestVaspwave(MatSciTest):
 
         vaspwave = Vaspwave(filename)
 
-        assert vaspwave.initial_structure is None
-        assert vaspwave.final_structure is None
+        assert vaspwave.structure is None
         assert vaspwave.spin == 1
         assert vaspwave.nk == 1
         assert vaspwave.nb == 2
         assert_allclose(vaspwave.a, np.diag([2.0, 3.0, 4.0]))
+
+    def test_parse_minimal_vaspwave_h5_with_locpot_structure(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        self._move_vaspwave_structure_to_locpot(filename)
+
+        vaspwave = Vaspwave(filename)
+
+        assert vaspwave.structure.reduced_formula == "H2"
+        assert_allclose(vaspwave.structure.lattice.matrix, np.diag([2.0, 3.0, 4.0]))
+        assert_allclose(vaspwave.structure.frac_coords, [[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]])
+
+    def test_parse_minimal_vaspwave_h5_with_inconsistent_structures(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        self._make_locpot_structure_inconsistent(filename)
+
+        with pytest.raises(ValueError, match="inconsistent structures"):
+            Vaspwave(filename)
 
     def test_get_band_coeffs_minimal_vaspwave_h5(self):
         filename = Path(self.tmp_path) / "vaspwave.h5"
@@ -2941,21 +2974,21 @@ class TestVaspwave(MatSciTest):
         chgcar = vaspwave.get_chgcar()
 
         assert isinstance(chgcar, Chgcar)
-        assert chgcar.structure == vaspwave.initial_structure
+        assert chgcar.structure == vaspwave.structure
         assert chgcar.dim == (2, 3, 4)
         assert_allclose(chgcar.data["total"], np.transpose(np.arange(24, dtype=float).reshape(4, 3, 2), (2, 1, 0)))
 
     def test_get_chgcar_minimal_vaspwave_h5_without_structure(self):
         filename = Path(self.tmp_path) / "vaspwave.h5"
         self._write_minimal_vaspwave_h5(filename)
-        structure = Vaspwave(filename).initial_structure
+        structure = Vaspwave(filename).structure
         self._remove_vaspwave_structure(filename)
         vaspwave = Vaspwave(filename)
 
-        with pytest.raises(ValueError, match="single-step SCF"):
+        with pytest.raises(ValueError, match="does not contain structure data"):
             vaspwave.get_chgcar()
 
-        vaspwave.initial_structure = structure
+        vaspwave.structure = structure
         chgcar = vaspwave.get_chgcar()
 
         assert isinstance(chgcar, Chgcar)
@@ -2966,14 +2999,14 @@ class TestVaspwave(MatSciTest):
     def test_get_locpot_minimal_vaspwave_h5_without_structure(self):
         filename = Path(self.tmp_path) / "vaspwave.h5"
         self._write_minimal_vaspwave_h5(filename)
-        structure = Vaspwave(filename).initial_structure
+        structure = Vaspwave(filename).structure
         self._remove_vaspwave_structure(filename)
         vaspwave = Vaspwave(filename)
 
-        with pytest.raises(ValueError, match="single-step SCF"):
+        with pytest.raises(ValueError, match="does not contain structure data"):
             vaspwave.get_locpot()
 
-        vaspwave.initial_structure = structure
+        vaspwave.structure = structure
         locpot = vaspwave.get_locpot()
 
         assert isinstance(locpot, Locpot)
@@ -2988,7 +3021,7 @@ class TestVaspwave(MatSciTest):
         locpot = vaspwave.get_locpot()
 
         assert isinstance(locpot, Locpot)
-        assert locpot.structure == vaspwave.initial_structure
+        assert locpot.structure == vaspwave.structure
         assert locpot.dim == (2, 3, 4)
         assert_allclose(
             locpot.data["total"],
