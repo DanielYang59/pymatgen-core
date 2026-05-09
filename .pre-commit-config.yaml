@@ -1,41 +1,61 @@
-exclude: ^(docs|tests/files|test-files|tasks.py)
+# Globally-excluded paths: documentation sources, fixture directories, the
+# invoke ``tasks.py``, and the ``dev/`` directory of local helpers /
+# reproducers (not part of the installed package; lint debt there is out
+# of scope for the regular pre-commit pipeline).
+exclude: ^(docs|.*test_files|tasks\.py|dev/)
+
+# Install both pre-commit and commit-msg hook types when contributors run
+# ``pre-commit install`` — required for codespell's ``commit-msg`` stage
+# below to actually fire on commit messages without an extra install step.
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
 
 ci:
   autoupdate_schedule: monthly
-  skip: [mypy, pyright]
+  skip: [mypy]
   autofix_commit_msg: pre-commit auto-fixes
   autoupdate_commit_msg: pre-commit autoupdate
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.14
+    rev: v0.15.12
     hooks:
-      - id: ruff
-        args: [--fix, --unsafe-fixes]
+      # ``ruff-check`` is the modern hook id; ``id: ruff`` is the legacy
+      # alias and prints a "ruff (legacy alias)" warning every run.
+      - id: ruff-check
+        args: [--fix]
       - id: ruff-format
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2000]
+      - id: debug-statements
       - id: end-of-file-fixer
       - id: trailing-whitespace
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.19.1
+    rev: v2.0.0
     hooks:
       - id: mypy
-        entry: mypy -p pymatgen
-        pass_filenames: false
+        # mypy is given the explicit file list by pre-commit, which makes
+        # ``[tool.mypy] exclude = [...]`` in pyproject.toml a no-op for
+        # those files. Skip ``examples`` and ``tests`` at the hook level
+        # so mypy only sees ``src/matgl`` (matching pyproject.toml intent).
+        exclude: ^(examples|tests)/
 
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
+    rev: v2.4.2
     hooks:
       - id: codespell
         stages: [pre-commit, commit-msg]
         exclude_types: [html]
-        additional_dependencies: [tomli] # needed to read pyproject.toml below py3.11
-        exclude: src/pymatgen/analysis/aflow_prototypes.json
+        args: [--check-filenames]
+        exclude: ^pretrained_models/.*/model\.json$
 
   - repo: https://github.com/MarcoGorelli/cython-lint
     rev: v0.19.0
@@ -44,29 +64,8 @@ repos:
         args: [--no-pycodestyle]
       - id: double-quote-cython-strings
 
-  - repo: https://github.com/adamchainz/blacken-docs
-    rev: 1.20.0
-    hooks:
-      - id: blacken-docs
-
-  - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.47.0
-    hooks:
-      - id: markdownlint
-        # MD013: line too long
-        # MD024: Multiple headings with the same content
-        # MD033: no inline HTML
-        # MD041: first line in a file should be a top-level heading
-        # MD025: single title
-        args: [--disable, MD013, MD024, MD025, MD033, MD041, "--"]
-
   - repo: https://github.com/kynan/nbstripout
-    rev: 0.9.0
+    rev: 0.9.1
     hooks:
       - id: nbstripout
         args: [--drop-empty-cells, --keep-output]
-
-  - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.408
-    hooks:
-      - id: pyright
