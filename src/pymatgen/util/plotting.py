@@ -740,8 +740,8 @@ def add_fig_kwargs(func):
         if ax_annotate:
             tags = ascii_letters
             if len(fig.axes) > len(tags):
-                tags = (1 + len(ascii_letters) // len(fig.axes)) * ascii_letters
-            for ax, tag in zip(fig.axes, tags, strict=True):
+                tags = (1 + len(fig.axes) // len(ascii_letters)) * ascii_letters
+            for ax, tag in zip(fig.axes, tags[: len(fig.axes)], strict=True):
                 ax.annotate(f"({tag})", xy=(0.05, 0.95), xycoords="axes fraction")
 
         if tight_layout:

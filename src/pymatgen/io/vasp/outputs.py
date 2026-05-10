@@ -1612,7 +1612,7 @@ class Vasprun(MSONable):
                 style=Kpoints.supported_modes.Reciprocal,
                 num_kpts=len(kpoint.kpts),
                 kpts=actual_kpoints,
-                kpts_weights=weights,
+                kpts_weights=weights,  # type: ignore[arg-type]
             )
         return kpoint, actual_kpoints, weights  # type:ignore[return-value]
 
@@ -6151,8 +6151,11 @@ class Vaspwave(Vasprun):
 
     def _initialize_kpoint_state(self) -> None:
         """Initialize per-k-point metadata used by wavefunction reconstruction."""
-        self.kpoints = []
-        self.num_planewaves = []
+        # `Vasprun.kpoints` is typed as `Kpoints`; `Vaspwave` overrides with a list of
+        # k-point vectors. Annotate explicitly so mypy doesn't see the parent type.
+        self.kpoints: list[np.ndarray] = []  # type: ignore[assignment]
+        self.num_planewaves: list[int] = []
+        self.band_energy: list[Any]
         if self.spin == 2:
             self.band_energy = [[] for _ in range(self.spin)]
         else:
@@ -6174,8 +6177,10 @@ class Vaspwave(Vasprun):
         self._generate_nbmax()
         self.ng = self._nbmax * 3
         self._gamma_only = self._is_gamma_only()
-        self.Gpoints = [None for _ in range(self.nk)]
-        self._gamma_extra_coeff_inds = [[] for _ in range(self.nk)]
+        # Each entry is replaced by an ndarray below; declare the union so mypy
+        # accepts both the placeholder and the populated state.
+        self.Gpoints: list[np.ndarray | None] = [None for _ in range(self.nk)]
+        self._gamma_extra_coeff_inds: list[list[int]] = [[] for _ in range(self.nk)]
 
         for ik, kpoint in enumerate(self.kpoints):
             if self._gamma_only:
@@ -6190,10 +6195,13 @@ class Vaspwave(Vasprun):
                     )
                 self.Gpoints[ik] = np.array(gpoints, dtype=np.float64)
 
+        # Every entry has been populated above; the cast tells mypy the None
+        # placeholders are gone before we measure lengths.
+        populated_gpoints = cast("list[np.ndarray]", self.Gpoints)
         if self._gamma_only:
             self.vasp_type = "gam"
         elif all(
-            2 * len(gpoints) == num_pw for gpoints, num_pw in zip(self.Gpoints, self.num_planewaves, strict=False)
+            2 * len(gpoints) == num_pw for gpoints, num_pw in zip(populated_gpoints, self.num_planewaves, strict=False)
         ):
             self.vasp_type = "ncl"
         else:
@@ -6607,9 +6615,12 @@ class Vaspwave(Vasprun):
                 ``self.Gpoints[kpoint_index]``.
         """
         if self.vasp_type == "ncl":
-            if len(coeffs) != 2 * len(self.Gpoints[kpoint_index]):
+            gpoints = self.Gpoints[kpoint_index]
+            if gpoints is None:
+                raise RuntimeError(f"G-points for kpoint {kpoint_index} have not been initialized.")
+            if len(coeffs) != 2 * len(gpoints):
                 raise ValueError("Serialized ncl coefficients do not match the expected spinor-packed size.")
-            return np.array(coeffs, dtype=np.complex128).reshape((2, len(self.Gpoints[kpoint_index])))
+            return np.array(coeffs, dtype=np.complex128).reshape((2, len(gpoints)))
 
         if not self._gamma_only:
             # `vhdf5.F` writes the HDF5 wave dataset after `MRG_PW_BAND`,
@@ -6625,13 +6636,14 @@ class Vaspwave(Vasprun):
 
     def _build_mesh_from_coeffs(self, kpoint: int, coeffs: np.ndarray, shift: bool = True) -> np.ndarray:
         """Place complex coefficients onto the FFT mesh for a given k-point."""
-        if self.Gpoints[kpoint] is None:
+        gpoints = self.Gpoints[kpoint]
+        if gpoints is None:
             raise RuntimeError(f"G-points for kpoint {kpoint} have not been initialized.")
-        if len(coeffs) != len(self.Gpoints[kpoint]):
+        if len(coeffs) != len(gpoints):
             raise ValueError("Number of coefficients does not match the number of generated G-points.")
 
         mesh = np.zeros(tuple(self.ng), dtype=np.complex128)
-        for gp, coeff in zip(self.Gpoints[kpoint], coeffs, strict=False):
+        for gp, coeff in zip(gpoints, coeffs, strict=False):
             t = tuple(gp.astype(int) + (self.ng / 2).astype(int))
             mesh[t] = coeff
         return np.fft.ifftshift(mesh) if shift else mesh
