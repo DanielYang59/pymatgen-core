@@ -55,6 +55,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
     from typing import Literal, Self, TypeAlias
 
+    from h5py import File as H5File
+    from h5py import Group as H5Group
+
     # Avoid name conflict with pymatgen.core.Element
     from lxml.etree import _Element as XML_Element
     from numpy.typing import NDArray
@@ -6058,12 +6061,36 @@ class Vaspwave(Vasprun):
 
     This class is intended as an HDF5-native companion to Wavecar. The current
     implementation supports gamma-only, std, and ncl wavefunction access with a
-    public interface that matches Wavecar where practical.
+    public interface that matches Wavecar where practical. Files without a
+    ``/wave`` group can still be used to read native charge-density and
+    local-potential grids.
+
+    Examples:
+        Read native charge-density and local-potential grids from
+        ``vaspwave.h5``:
+
+        >>> vaspwave = Vaspwave("vaspwave.h5")
+        >>> chgcar = vaspwave.get_chgcar()
+        >>> locpot = vaspwave.get_locpot()
+        >>> chgcar.write_file("CHGCAR")
+        >>> locpot.write_file("LOCPOT")
+
+        Use wavefunction data, when the file contains a ``/wave`` group, with
+        a Wavecar-like interface:
+
+        >>> coeffs = vaspwave.get_band_coeffs(0, 0, 0)
+        >>> mesh = vaspwave.fft_mesh(0, 0)
+
+        Generate a partial charge density from a selected wavefunction:
+
+        >>> poscar = Poscar.from_file("POSCAR")
+        >>> parchg = vaspwave.get_parchg(poscar, 0, 0)
     """
 
     def __init__(self, filename: str | Path) -> None:
         self.filename = str(filename)
         self._wave_path_map: dict[tuple[int, int], str] = {}
+        self._has_wavefunction_data = False
         self._gamma_only = False
         self._C = 0.262465831
         self._parse()
@@ -6088,24 +6115,32 @@ class Vaspwave(Vasprun):
         """Read raw metadata needed to initialize a ``Vaspwave`` object.
 
         This method only extracts file-backed metadata and does not derive any
-        wavefunction reconstruction state.
+        wavefunction reconstruction state. Files without a ``/wave`` group
+        return only version and structure metadata.
 
         Returns:
             dict[str, Any]: Parsed metadata including version information,
-                structure data, wavefunction dimensions, cutoff, lattice
-                matrix, and Fermi energy.
+                structure data, and a ``has_wavefunction_data`` flag. When a
+                ``/wave`` group exists, the metadata also includes wavefunction
+                dimensions, cutoff, lattice matrix, and Fermi energy.
         """
         with zopen(self.filename, "rb") as vwave_file, h5py.File(vwave_file, "r") as h5_file:
             version = self._parse_hdf5_value(h5_file["version"])
+            structure = self._parse_hdf5_structure(h5_file)
+            if "wave" not in h5_file:
+                return {
+                    "version": version,
+                    "structure": structure,
+                    "has_wavefunction_data": False,
+                }
+
             wave_group = h5_file["wave"]
-            structure_group = None
-            if "structure" in h5_file and "positions" in h5_file["structure"]:
-                structure_group = self._parse_hdf5_value(h5_file["structure"]["positions"])
             self._register_wave_paths(wave_group)
 
             return {
                 "version": version,
-                "structure_group": structure_group,
+                "structure": structure,
+                "has_wavefunction_data": True,
                 "spin": int(self._parse_hdf5_value(wave_group["rispin"])),
                 "nk": int(self._parse_hdf5_value(wave_group["rnkpts"])),
                 "nb": int(self._parse_hdf5_value(wave_group["rnb_tot"])),
@@ -6180,6 +6215,11 @@ class Vaspwave(Vasprun):
                 ``_parse_file_metadata()``.
         """
         self.version = metadata["version"]
+        self.structure = metadata["structure"]
+        self._has_wavefunction_data = metadata["has_wavefunction_data"]
+        if not self._has_wavefunction_data:
+            return
+
         self.spin = metadata["spin"]
         self.nk = metadata["nk"]
         self.nb = metadata["nb"]
@@ -6187,12 +6227,6 @@ class Vaspwave(Vasprun):
         self.efermi = metadata["efermi"]
         self.a = metadata["a"]
         self.b, self.vol = self._compute_reciprocal_lattice_and_volume(self.a)
-        structure_group = metadata["structure_group"]
-        # `Vasprun.initial_structure` is typed as `Structure`; here we may have
-        # nothing to parse, so widen to allow None.
-        parsed_structure = None if structure_group is None else self._parse_structure(structure_group)
-        self.initial_structure = parsed_structure  # type: ignore[assignment]
-        self.final_structure = None if parsed_structure is None else parsed_structure.copy()  # type: ignore[assignment]
         self._initialize_kpoint_state()
         self._initialize_reconstruction_state()
 
@@ -6281,7 +6315,13 @@ class Vaspwave(Vasprun):
 
     @staticmethod
     def _parse_structure(positions: dict[str, Any]) -> Structure:
-        """Parse the crystal structure stored in ``/structure/positions``."""
+        """Parse the positions-style structure layout used by ``vaspwave.h5``.
+
+        The expected dictionary layout is shared by ``/structure/positions``
+        and ``/locpot/position``. Required keys are ``ion_types``,
+        ``number_ion_types``, ``scale``, ``lattice_vectors``,
+        ``position_ions``, and ``direct_coordinates``.
+        """
         species = []
         for ispecie, specie in enumerate(positions["ion_types"]):
             species += [specie for _ in range(positions["number_ion_types"][ispecie])]
@@ -6293,15 +6333,58 @@ class Vaspwave(Vasprun):
             coords_are_cartesian=(positions["direct_coordinates"] != 1),
         )
 
-    def _get_volumetric_poscar(self) -> Poscar | Structure:
+    @staticmethod
+    def _get_structure_mismatch(structure: Structure, other: Structure) -> str | None:
+        """Return the first mismatched field between two VASPwave structures."""
+        if list(structure.species) != list(other.species):
+            return "species"
+        if not np.allclose(structure.lattice.matrix, other.lattice.matrix):
+            return "lattice"
+        if not np.allclose(structure.frac_coords, other.frac_coords):
+            return "fractional coordinates"
+        return None
+
+    @classmethod
+    def _parse_hdf5_structure(cls, h5_file: H5File | H5Group) -> Structure | None:
+        """Read structure metadata from ``/structure/positions`` or ``/locpot/position``.
+
+        If both paths are present, they are expected to describe the same
+        structure, allowing small floating-point differences in lattice and
+        fractional coordinates.
+        """
+        structure_paths = ("/structure/positions", "/locpot/position")
+        structures = [
+            cls._parse_structure(cls._parse_hdf5_value(h5_file[path])) for path in structure_paths if path in h5_file
+        ]
+
+        if not structures:
+            return None
+
+        structure = structures[0]
+        # VASP normally writes the same structure to both branches; tolerate
+        # small floating-point differences if both are present.
+        for other in structures[1:]:
+            mismatch = cls._get_structure_mismatch(structure, other)
+            if mismatch is not None:
+                raise ValueError(
+                    "vaspwave.h5 contains inconsistent structures at /structure/positions and /locpot/position "
+                    f"({mismatch} differ)."
+                )
+        return structure
+
+    def _get_volumetric_structure(self) -> Structure:
         """Get the structure object used to construct volumetric VASP outputs."""
-        if self.initial_structure is None:
+        if self.structure is None:
             raise ValueError(
-                "vaspwave.h5 does not contain /structure/positions. This can happen for a single-step SCF "
-                "calculation where VASP does not store the structure in vaspwave.h5. Attach a structure manually "
-                "by setting vaspwave.initial_structure before calling this method."
+                "vaspwave.h5 does not contain structure data at /structure/positions or /locpot/position. Attach a "
+                "structure manually by setting vaspwave.structure before calling this method."
             )
-        return self.initial_structure
+        return self.structure
+
+    def _require_wavefunction_data(self) -> None:
+        """Raise a clear error if this file does not contain wavefunction data."""
+        if not self._has_wavefunction_data:
+            raise ValueError("vaspwave.h5 does not contain wavefunction data at /wave.")
 
     @staticmethod
     def _compute_reciprocal_lattice_and_volume(a: np.ndarray) -> tuple[np.ndarray, float]:
@@ -6614,6 +6697,7 @@ class Vaspwave(Vasprun):
             np.ndarray: Complex plane-wave coefficients for the requested
                 wavefunction.
         """
+        self._require_wavefunction_data()
         if self.vasp_type not in {"gam", "std", "ncl"}:
             raise NotImplementedError("Unsupported vaspwave.h5 type.")
         if self.spin not in {1, 2}:
@@ -6647,6 +6731,7 @@ class Vaspwave(Vasprun):
             np.ndarray: Complex FFT mesh containing the wavefunction
                 coefficients.
         """
+        self._require_wavefunction_data()
         spin, spinor = self._validate_spin_and_spinor_args(spin=spin, spinor=spinor)
         kpoint, band = self._normalize_wave_indices(kpoint, band)
         return self._fft_mesh(kpoint, band, spin=spin, spinor=spinor, shift=shift)
@@ -6675,6 +6760,7 @@ class Vaspwave(Vasprun):
         Returns:
             np.complex64: Wavefunction value evaluated at ``r``.
         """
+        self._require_wavefunction_data()
         spin, spinor = self._validate_spin_and_spinor_args(spin=spin, spinor=spinor)
         kpoint, band = self._normalize_wave_indices(kpoint, band)
         v = self.Gpoints[kpoint] + self.kpoints[kpoint]
@@ -6719,6 +6805,7 @@ class Vaspwave(Vasprun):
             Chgcar: Partial charge density derived from the selected
                 wavefunction.
         """
+        self._require_wavefunction_data()
         kpoint, band = self._normalize_wave_indices(kpoint, band)
         if phase and not np.allclose(self.kpoints[kpoint], 0.0):
             warnings.warn(
@@ -6782,27 +6869,27 @@ class Vaspwave(Vasprun):
         """Read the native charge-density grid stored in ``/charge/charge``.
 
         Returns:
-            Chgcar: Charge density object using the structure stored in
-            ``vaspwave.h5``.
+            Chgcar: Charge density object using ``self.structure``, parsed from
+            ``/structure/positions`` or ``/locpot/position``.
 
         Raises:
             ValueError: If ``vaspwave.h5`` does not contain structure data.
         """
         data = self._read_validated_volumetric_dataset("/charge/grid", "/charge/charge")
-        return Chgcar(self._get_volumetric_poscar(), data)
+        return Chgcar(self._get_volumetric_structure(), data)
 
     def get_locpot(self) -> Locpot:
         """Read the native local-potential grid stored in ``/locpot/total``.
 
         Returns:
-            Locpot: Local potential object using the structure stored in
-            ``vaspwave.h5``.
+            Locpot: Local potential object using ``self.structure``, parsed from
+            ``/structure/positions`` or ``/locpot/position``.
 
         Raises:
             ValueError: If ``vaspwave.h5`` does not contain structure data.
         """
         data = self._read_validated_volumetric_dataset("/locpot/grid", "/locpot/total")
-        return Locpot(self._get_volumetric_poscar(), data)
+        return Locpot(self._get_volumetric_structure(), data)
 
     def write_unks(self, directory: PathLike) -> None:
         """Write supported ``vaspwave.h5`` wavefunctions to UNK files.
@@ -6812,6 +6899,7 @@ class Vaspwave(Vasprun):
             files, but their contents are not yet validated to be pointwise
             identical to ``Wavecar.write_unks()`` for the local HDF5 sample.
         """
+        self._require_wavefunction_data()
         out_dir = Path(directory).expanduser()
         if not out_dir.exists():
             out_dir.mkdir(parents=False)
