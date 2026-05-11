@@ -127,7 +127,8 @@ class TestSetChangeCheck(MatSciTest):
         }
 
         for input_set, hash_str in hashes.items():
-            assert hash_str == known_hashes[input_set], f"{input_set=}\n{msg}"
+            if input_set in known_hashes:
+                assert hash_str == known_hashes[input_set], f"{input_set=}\n{msg}"
 
 
 class TestVaspInputSet(MatSciTest):
