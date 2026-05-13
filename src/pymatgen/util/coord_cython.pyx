@@ -48,7 +48,7 @@ cdef void dot_2d_3x3(
     np.float_t[:, ::1] a,
     np.float_t[:, ::1] b,
     np.float_t[:, ::1] o,
-) nogil:
+) noexcept nogil:
     cdef int i, I = a.shape[0]
     cdef double a0, a1, a2
     cdef double b00 = b[0, 0], b01 = b[0, 1], b02 = b[0, 2]
@@ -69,7 +69,7 @@ cdef void dot_2d_mod_3x3(
     np.float_t[:, ::1] a,
     np.float_t[:, ::1] b,
     np.float_t[:, ::1] o,
-) nogil:
+) noexcept nogil:
     """Same as dot_2d_3x3 but applies a mod-1 to each input frac coord first.
 
     Implemented as ``a - floor(a)`` (numpy ``np.mod(a, 1)`` semantics — always
@@ -252,7 +252,8 @@ def is_coord_subset_pbc(subset, superset, atol, mask, pbc=(True, True, True)):
 
     cdef int i, j, k, len_fc1, len_fc2
     cdef np.float_t d
-    cdef bint ok, pbc_int[3]
+    cdef bint ok
+    cdef bint pbc_int[3]
 
     pbc_int = pbc
 
@@ -301,7 +302,8 @@ def coord_list_mapping_pbc(subset, superset, atol=1e-8, pbc=(True, True, True)):
     cdef np.float_t[:] t = atol
     cdef np.int64_t[:] c_inds = inds
     cdef np.float_t d
-    cdef bint ok_inner, ok_outer, pbc_int[3]
+    cdef bint ok_inner, ok_outer
+    cdef bint pbc_int[3]
 
     pbc_int = pbc
 
