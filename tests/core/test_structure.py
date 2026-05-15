@@ -736,7 +736,8 @@ Direct
                     sites2 = [i[0] for i in nn_old]
                     assert set(sites1) == set(sites2)
                 break
-            except Exception:
+            except Exception:  # noqa: S110
+                # Retry across the candidate structures; only fail if none work.
                 pass
         else:
             raise ValueError("No valid structure tested.")
