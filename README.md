@@ -132,7 +132,6 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR TH
 ## About the Pymatgen Development Team
 
 Shyue Ping Ong (@shyuep) of the [Materialyze Lab] started Pymatgen in 2011 and is still the project lead.
-Janosh Riebesell (@janosh) and Matthew Horton (@mkhorton) are co-maintainers.
 
 The [`pymatgen` development team] is the set of all contributors to the `pymatgen` project, including all subprojects.
 
