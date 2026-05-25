@@ -501,3 +501,36 @@ class AbinitHeader(AttrDict):
     @deprecated(to_str)
     def to_string(self, *args, **kwargs):
         return self.to_str(*args, **kwargs)
+
+
+# ----------------------------------------------------------------------------
+# pymatgen.io.registry plugin: Structure <- ABINIT NetCDF (read-only, binary)
+# ----------------------------------------------------------------------------
+
+
+def _abinit_nc_read_file(filename: str, **kwargs):
+    from pymatgen.core.structure import Structure
+    from pymatgen.io.registry import filter_kwargs
+
+    kwargs.pop("primitive", None)
+    return structure_from_ncdata(
+        filename,
+        cls=Structure,
+        **filter_kwargs(structure_from_ncdata, kwargs),
+    )
+
+
+def _register_formats() -> None:
+    from pymatgen.io.registry import StructureFormat, register_structure_format
+
+    register_structure_format(
+        StructureFormat(
+            name="abinit-nc",
+            patterns=("*.nc",),
+            read_file=_abinit_nc_read_file,
+            binary=True,
+        )
+    )
+
+
+_register_formats()

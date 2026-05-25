@@ -418,3 +418,38 @@ class ExcitingInput(MSONable):
 
             else:
                 warnings.warn(f"cannot deal with {key} = {value}", stacklevel=2)
+
+
+# ----------------------------------------------------------------------------
+# pymatgen.io.registry plugin: Structure <- exciting input.xml (read-only)
+# ----------------------------------------------------------------------------
+
+
+def _exciting_read_str(input_string: str, **kwargs):
+    from pymatgen.io.registry import filter_kwargs
+
+    kwargs.pop("primitive", None)
+    return ExcitingInput.from_str(input_string, **filter_kwargs(ExcitingInput.from_str, kwargs)).structure
+
+
+def _exciting_read_file(filename: str, **kwargs):
+    from pymatgen.io.registry import filter_kwargs
+
+    kwargs.pop("primitive", None)
+    return ExcitingInput.from_file(filename, **filter_kwargs(ExcitingInput.from_file, kwargs)).structure
+
+
+def _register_formats() -> None:
+    from pymatgen.io.registry import StructureFormat, register_structure_format
+
+    register_structure_format(
+        StructureFormat(
+            name="exciting",
+            patterns=("input*.xml",),
+            read_str=_exciting_read_str,
+            read_file=_exciting_read_file,
+        )
+    )
+
+
+_register_formats()

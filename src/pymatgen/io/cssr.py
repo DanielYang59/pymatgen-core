@@ -102,3 +102,40 @@ class Cssr:
         """
         with zopen(filename, mode="rt", encoding="utf-8") as file:
             return cls.from_str(file.read())  # type:ignore[arg-type]
+
+
+# ----------------------------------------------------------------------------
+# pymatgen.io.registry plugin: Structure <-> CSSR
+# ----------------------------------------------------------------------------
+
+
+def _cssr_read_str(input_string: str, **kwargs):
+    from pymatgen.io.registry import filter_kwargs
+
+    kwargs.pop("primitive", None)
+    return Cssr.from_str(input_string, **filter_kwargs(Cssr.from_str, kwargs)).structure
+
+
+def _cssr_write_str(structure, **kwargs) -> str:
+    return str(Cssr(structure, **kwargs))
+
+
+def _cssr_write_file(structure, filename, **kwargs) -> None:
+    Cssr(structure, **kwargs).write_file(filename)
+
+
+def _register_formats() -> None:
+    from pymatgen.io.registry import StructureFormat, register_structure_format
+
+    register_structure_format(
+        StructureFormat(
+            name="cssr",
+            patterns=("*.cssr*",),
+            read_str=_cssr_read_str,
+            write_str=_cssr_write_str,
+            write_file=_cssr_write_file,
+        )
+    )
+
+
+_register_formats()

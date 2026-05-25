@@ -12,7 +12,6 @@ import functools
 import inspect
 import io
 import itertools
-import json
 import math
 import os
 import re
@@ -20,16 +19,13 @@ import sys
 import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from fnmatch import fnmatch
 from typing import TYPE_CHECKING, Literal, cast, get_args, overload
 
 import numpy as np
 import orjson
 from monty.dev import deprecated
-from monty.io import zopen
 from monty.json import MSONable
 from numpy.linalg import norm
-from ruamel.yaml import YAML
 from tabulate import tabulate
 
 # scipy.cluster.hierarchy, scipy.linalg, and scipy.spatial are imported
@@ -2962,9 +2958,9 @@ class IStructure(SiteCollection, MSONable):
             fmt (str): Format to output to. Defaults to JSON unless filename
                 is provided. If specified, it overrides whatever the
                 filename is. Options include "cif", "poscar", "cssr", "json",
-                "xsf", "mcsqs", "prismatic", "yaml", "yml", "fleur-inpgen", "pwmat",
-                "aims".
-                Case insensitive.
+                "xsf", "mcsqs", "prismatic", "yaml", "yml", "fleur-inpgen",
+                "pwmat", "aims", or any format registered via
+                `pymatgen.io.registry`. Case-insensitive.
             **kwargs: Kwargs pass thru to relevant methods. This allows
                 the passing of parameters like `symprec` to the
                 `CifWriter.__init__ method` for generation of symmetric CIFs.
@@ -2973,121 +2969,25 @@ class IStructure(SiteCollection, MSONable):
             str: String representation of structure in given format. If a filename
                 is provided, the same string is written to the file.
         """
+        from pymatgen.io.registry import dispatch_write, get_structure_format
+
         filename, fmt = str(filename), cast("FileFormats", fmt.lower())
 
-        # Default to JSON if filename not specified
+        # Default to JSON if neither filename nor fmt are specified
         if filename == "" and fmt == "":
             fmt = "json"
 
-        if fmt == "cif" or fnmatch(filename.lower(), "*.cif*"):
-            from pymatgen.io.cif import CifWriter
+        try:
+            handler = get_structure_format(name=fmt, filename=filename)
+        except ValueError:
+            if fmt == "" and filename:
+                raise ValueError(f"Format not specified and could not infer from {filename=}") from None
+            if fmt:
+                raise ValueError(f"Invalid {fmt=}, valid options are {get_args(FileFormats)}") from None
+            raise
 
-            writer: Any = CifWriter(self, **kwargs)
-
-        elif fmt == "mcif" or fnmatch(filename.lower(), "*.mcif*"):
-            from pymatgen.io.cif import CifWriter
-
-            writer = CifWriter(self, write_magmoms=True, **kwargs)
-
-        elif fmt == "poscar" or fnmatch(filename, "*POSCAR*"):
-            from pymatgen.io.vasp import Poscar
-
-            writer = Poscar(self, **kwargs)
-
-        elif fmt == "cssr" or fnmatch(filename.lower(), "*.cssr*"):
-            from pymatgen.io.cssr import Cssr
-
-            writer = Cssr(self)
-
-        elif fmt == "json" or fnmatch(filename.lower(), "*.json*"):
-            json_str = (
-                json.dumps(self.as_dict(), **kwargs)
-                if kwargs
-                else orjson.dumps(self.as_dict(), option=orjson.OPT_SERIALIZE_NUMPY).decode()
-            )
-
-            if filename:
-                with zopen(filename, mode="wt", encoding="utf-8") as file:
-                    file.write(json_str)  # type:ignore[arg-type]
-            return json_str
-
-        elif fmt == "xsf" or fnmatch(filename.lower(), "*.xsf*"):
-            from pymatgen.io.xcrysden import XSF
-
-            res_str = XSF(self).to_str()
-            if filename:
-                with zopen(filename, mode="wt", encoding="utf-8") as file:
-                    file.write(res_str)  # type:ignore[arg-type]
-            return res_str
-
-        elif (
-            fmt == "mcsqs"
-            or fnmatch(filename, "*rndstr.in*")
-            or fnmatch(filename, "*lat.in*")
-            or fnmatch(filename, "*bestsqs*")
-        ):
-            from pymatgen.io.atat import Mcsqs
-
-            res_str = Mcsqs(self).to_str()
-            if filename:
-                with zopen(filename, mode="wt", encoding="ascii") as file:
-                    file.write(res_str)  # type:ignore[arg-type]
-            return res_str
-
-        elif fmt == "prismatic" or fnmatch(filename, "*prismatic*"):
-            from pymatgen.io.prismatic import Prismatic
-
-            return Prismatic(self).to_str()
-
-        elif fmt in ("yaml", "yml") or fnmatch(filename, "*.yaml*") or fnmatch(filename, "*.yml*"):
-            yaml = YAML()
-            str_io = io.StringIO()
-            yaml.dump(self.as_dict(), str_io)
-            yaml_str = str_io.getvalue()
-            if filename:
-                with zopen(filename, mode="wt", encoding="utf-8") as file:
-                    file.write(yaml_str)  # type:ignore[arg-type]
-            return yaml_str
-
-        elif fmt == "aims" or fnmatch(filename, "geometry.in"):
-            from pymatgen.io.aims.inputs import AimsGeometryIn
-
-            geom_in = AimsGeometryIn.from_structure(self)
-            if filename:
-                with zopen(filename, mode="wt", encoding="utf-8") as file:
-                    file.write(geom_in.get_header(filename))  # type:ignore[arg-type]
-                    file.write(geom_in.content)  # type:ignore[arg-type]
-                    file.write("\n")  # type:ignore[arg-type]
-            return geom_in.content
-
-        # fleur support implemented in external namespace pkg https://github.com/JuDFTteam/pymatgen-io-fleur
-        elif fmt == "fleur-inpgen" or fnmatch(filename, "*.in*"):
-            from pymatgen.io.fleur import FleurInput
-
-            writer = FleurInput(self, **kwargs)
-
-        elif fmt == "res" or fnmatch(filename, "*.res"):
-            from pymatgen.io.res import ResIO
-
-            res_str = ResIO.structure_to_str(self)
-            if filename:
-                with zopen(filename, mode="wt", encoding="utf-8") as file:
-                    file.write(res_str)  # type:ignore[arg-type]
-            return res_str
-
-        elif fmt == "pwmat" or fnmatch(filename.lower(), "*.pwmat") or fnmatch(filename.lower(), "*.config"):
-            from pymatgen.io.pwmat import AtomConfig
-
-            writer = AtomConfig(self, **kwargs)
-
-        else:
-            if fmt == "":
-                raise ValueError(f"Format not specified and could not infer from {filename=}")
-            raise ValueError(f"Invalid {fmt=}, valid options are {get_args(FileFormats)}")
-
-        if filename:
-            writer.write_file(filename)
-        return str(writer)
+        result = dispatch_write(handler, self, filename, **kwargs)
+        return result or ""
 
     @classmethod
     def from_id(cls, id_, source: Literal["Materials Project", "COD"] = "Materials Project", **kwargs) -> Structure:
@@ -3117,24 +3017,11 @@ class IStructure(SiteCollection, MSONable):
     def _filter_kwargs(func: Callable, kwargs: dict) -> dict:
         """Filter kwargs to only those accepted by func, warning about any removed.
 
-        Args:
-            func: The callable to inspect.
-            kwargs: The kwargs dict to filter.
-
-        Returns:
-            dict of kwargs supported by func.
+        Kept as a backward-compatible shim around `pymatgen.io.registry.filter_kwargs`.
         """
-        params = inspect.signature(func).parameters
-        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
-            return kwargs
-        supported = {k: v for k, v in kwargs.items() if k in params}
-        unsupported = kwargs.keys() - supported.keys()
-        if unsupported:
-            warnings.warn(
-                f"The following kwargs are not supported by {func.__qualname__} and will be ignored: {unsupported}",
-                stacklevel=3,
-            )
-        return supported
+        from pymatgen.io.registry import filter_kwargs
+
+        return filter_kwargs(func, kwargs, stacklevel=4)
 
     @classmethod
     def from_str(  # type:ignore[override]
@@ -3151,9 +3038,10 @@ class IStructure(SiteCollection, MSONable):
         Args:
             input_string (str): String to parse.
             fmt (str): A file format specification. One of "cif", "poscar", "cssr",
-                "json", "yaml", "yml", "xsf", "mcsqs", "res".
+                "json", "yaml", "yml", "xsf", "mcsqs", "res", "pwmat", "aims",
+                "fleur-inpgen", or any format registered via `pymatgen.io.registry`.
             primitive (bool): Whether to find a primitive cell. Defaults to
-                False.
+                False. Only honored by formats that support it (notably CIF).
             sort (bool): Whether to sort the sites in accordance to the default
                 ordering criteria, i.e., electronegativity.
             merge_tol (float): If this is some positive number, sites that
@@ -3164,73 +3052,14 @@ class IStructure(SiteCollection, MSONable):
         Returns:
             IStructure | Structure
         """
-        fmt_low = fmt.lower()
-        if fmt_low == "cif":
-            from pymatgen.io.cif import CifParser
+        from pymatgen.io.registry import dispatch_read_str, get_structure_format
 
-            parser = CifParser.from_str(input_string, **cls._filter_kwargs(CifParser.from_str, kwargs))
-            struct = parser.parse_structures(primitive=primitive)[0]
-        elif fmt_low == "poscar":
-            from pymatgen.io.vasp import Poscar
+        try:
+            handler = get_structure_format(name=fmt.lower())
+        except ValueError:
+            raise ValueError(f"Invalid {fmt=}, valid options are {get_args(FileFormats)}") from None
 
-            struct = Poscar.from_str(
-                input_string, default_names=None, read_velocities=False, **cls._filter_kwargs(Poscar.from_str, kwargs)
-            ).structure
-        elif fmt_low == "cssr":
-            from pymatgen.io.cssr import Cssr
-
-            cssr = Cssr.from_str(input_string, **cls._filter_kwargs(Cssr.from_str, kwargs))
-            struct = cssr.structure  # type:ignore[assignment]
-        elif fmt_low == "json":
-            dct = orjson.loads(input_string)
-            struct = Structure.from_dict(dct)
-        elif fmt_low in ("yaml", "yml"):
-            yaml = YAML()
-            dct = yaml.load(input_string)
-            struct = Structure.from_dict(dct)
-        elif fmt_low == "xsf":
-            from pymatgen.io.xcrysden import XSF
-
-            xsf = XSF.from_str(input_string, **cls._filter_kwargs(XSF.from_str, kwargs))
-            if xsf.structure is None:
-                raise ValueError("XSF data does not contain a structure; use XSF.from_str for grids or band data")
-            if isinstance(xsf.structure, Molecule):
-                raise ValueError("XSF data contains a Molecule; use pymatgen.io.xcrysden.XSF for molecular data")
-            struct = xsf.structure
-            struct.properties.update(xsf.structure_properties())
-        elif fmt_low == "mcsqs":
-            from pymatgen.io.atat import Mcsqs
-
-            struct = Mcsqs.structure_from_str(input_string, **cls._filter_kwargs(Mcsqs.structure_from_str, kwargs))
-        elif fmt == "aims":
-            from pymatgen.io.aims.inputs import AimsGeometryIn
-
-            struct = AimsGeometryIn.from_str(input_string).structure  # type:ignore[assignment]
-        # fleur support implemented in external namespace pkg https://github.com/JuDFTteam/pymatgen-io-fleur
-        elif fmt == "fleur-inpgen":
-            from pymatgen.io.fleur import FleurInput
-
-            if kwargs:
-                warnings.warn(
-                    f"kwargs {set(kwargs)} cannot be validated for fleur-inpgen and will be passed through as-is.",
-                    stacklevel=2,
-                )
-            struct = FleurInput.from_string(input_string, inpgen_input=True, **kwargs).structure
-        elif fmt == "fleur":
-            from pymatgen.io.fleur import FleurInput
-
-            struct = FleurInput.from_string(input_string, inpgen_input=False).structure
-        elif fmt == "res":
-            from pymatgen.io.res import ResIO
-
-            struct = ResIO.structure_from_str(input_string, **cls._filter_kwargs(ResIO.structure_from_str, kwargs))
-        elif fmt == "pwmat":
-            from pymatgen.io.pwmat import AtomConfig
-
-            struct = AtomConfig.from_str(input_string, **cls._filter_kwargs(AtomConfig.from_str, kwargs)).structure
-        else:
-            raise ValueError(f"Invalid {fmt=}, valid options are {get_args(FileFormats)}")
-
+        struct = dispatch_read_str(handler, input_string, primitive=primitive, **kwargs)
         if sort:
             struct = struct.get_sorted_structure()
         if merge_tol:
@@ -3249,11 +3078,13 @@ class IStructure(SiteCollection, MSONable):
         """Read a structure from a file. For example, anything ending in
         a "cif" is assumed to be a Crystallographic Information Format file.
         Supported formats include CIF, POSCAR/CONTCAR, CHGCAR, LOCPOT,
-        vasprun.xml, CSSR, Netcdf and pymatgen's JSON-serialized structures.
+        vasprun.xml, CSSR, NetCDF, pymatgen's JSON-serialized structures, and
+        any format registered via `pymatgen.io.registry`.
 
         Args:
             filename (PathLike): The file to read.
             primitive (bool): Whether to convert to a primitive cell. Defaults to False.
+                Only honored by formats that support it (notably CIF).
             sort (bool): Whether to sort sites. Default to False.
             merge_tol (float): If this is some positive number, sites that are within merge_tol from each other will be
                 merged. Usually 0.01 should be enough to deal with common numerical issues.
@@ -3263,136 +3094,15 @@ class IStructure(SiteCollection, MSONable):
         Returns:
             Structure.
         """
+        from pymatgen.io.registry import dispatch_read_file, get_structure_format
+
         filename = str(filename)
-        if filename.endswith(".nc"):
-            # Read Structure from a netcdf file.
-            from pymatgen.io.abinit.netcdf import structure_from_ncdata
+        try:
+            handler = get_structure_format(filename=filename)
+        except ValueError:
+            raise ValueError(f"Unrecognized extension in {filename=}") from None
 
-            struct = structure_from_ncdata(filename, cls=cls)
-            if sort:
-                struct = struct.get_sorted_structure()
-            return struct
-
-        fname = os.path.basename(filename)
-        if fnmatch(fname.lower(), "*.cif*") or fnmatch(fname.lower(), "*.mcif*"):
-            with zopen(filename, mode="rt", errors="replace", encoding="utf-8") as file:
-                contents: str = file.read()  # type:ignore[assignment]
-            return cls.from_str(
-                contents,
-                fmt="cif",
-                primitive=primitive,
-                sort=sort,
-                merge_tol=merge_tol,
-                **kwargs,
-            )
-        if fnmatch(fname, "*POSCAR*") or fnmatch(fname, "*CONTCAR*") or fnmatch(fname, "*.vasp"):
-            with zopen(filename, mode="rt", errors="replace", encoding="utf-8") as file:
-                contents = file.read()  # type:ignore[assignment]
-            struct = cls.from_str(
-                contents,
-                fmt="poscar",
-                primitive=primitive,
-                sort=sort,
-                merge_tol=merge_tol,
-                **kwargs,
-            )
-
-        elif fnmatch(fname, "CHGCAR*") or fnmatch(fname, "LOCPOT*"):
-            from pymatgen.io.vasp import Chgcar
-
-            struct = Chgcar.from_file(filename, **kwargs).structure
-        elif fnmatch(fname, "vasprun*.xml*"):
-            from pymatgen.io.vasp import Vasprun
-
-            struct = Vasprun(filename, **kwargs).final_structure
-        elif fnmatch(fname.lower(), "*.cssr*"):
-            with zopen(filename, mode="rt", errors="replace", encoding="utf-8") as file:
-                contents = file.read()  # type:ignore[assignment]
-            return cls.from_str(
-                contents,
-                fmt="cssr",
-                primitive=primitive,
-                sort=sort,
-                merge_tol=merge_tol,
-                **kwargs,
-            )
-        elif fnmatch(fname, "*.json*") or fnmatch(fname, "*.mson*"):
-            with zopen(filename, mode="rt", errors="replace", encoding="utf-8") as file:
-                contents = file.read()  # type:ignore[assignment]
-            return cls.from_str(
-                contents,
-                fmt="json",
-                primitive=primitive,
-                sort=sort,
-                merge_tol=merge_tol,
-                **kwargs,
-            )
-        elif fnmatch(fname, "*.yaml*") or fnmatch(fname, "*.yml*"):
-            with zopen(filename, mode="rt", errors="replace", encoding="utf-8") as file:
-                contents = file.read()  # type:ignore[assignment]
-            return cls.from_str(
-                contents,
-                fmt="yaml",
-                primitive=primitive,
-                sort=sort,
-                merge_tol=merge_tol,
-                **kwargs,
-            )
-        elif fnmatch(fname, "*.xsf*"):
-            from pymatgen.io.xcrysden import XSF
-
-            with zopen(filename, mode="rb") as file:
-                xsf = XSF.parse_file(file, **cls._filter_kwargs(XSF.parse_file, kwargs))
-            if xsf.structure is None:
-                raise ValueError("XSF data does not contain a structure; use XSF.from_file for grids or band data")
-            if isinstance(xsf.structure, Molecule):
-                raise ValueError("XSF data contains a Molecule; use pymatgen.io.xcrysden.XSF for molecular data")
-            struct = xsf.structure
-            struct.properties.update(xsf.structure_properties())
-        elif fnmatch(fname, "input*.xml"):
-            from pymatgen.io.exciting import ExcitingInput
-
-            return ExcitingInput.from_file(filename, **kwargs).structure  # type:ignore[assignment, return-value]
-        elif fnmatch(fname, "*rndstr.in*") or fnmatch(fname, "*lat.in*") or fnmatch(fname, "*bestsqs*"):
-            with zopen(filename, mode="rt", errors="replace", encoding="utf-8") as file:
-                contents = file.read()  # type:ignore[assignment]
-            return cls.from_str(
-                contents,
-                fmt="mcsqs",
-                primitive=primitive,
-                sort=sort,
-                merge_tol=merge_tol,
-                **kwargs,
-            )
-        elif fnmatch(fname, "CTRL*"):
-            from pymatgen.io.lmto import LMTOCtrl
-
-            return LMTOCtrl.from_file(filename=filename, **kwargs).structure  # type:ignore[assignment,return-value]
-        elif fnmatch(fname, "geometry.in*"):
-            with zopen(filename, mode="rt", errors="replace", encoding="utf-8") as file:
-                contents = file.read()  # type:ignore[assignment]
-            return cls.from_str(
-                contents,
-                fmt="aims",
-                primitive=primitive,
-                sort=sort,
-                merge_tol=merge_tol,
-                **kwargs,
-            )
-        elif fnmatch(fname, "inp*.xml") or fnmatch(fname, "*.in*") or fnmatch(fname, "inp_*"):
-            from pymatgen.io.fleur import FleurInput
-
-            struct = FleurInput.from_file(filename, **kwargs).structure
-        elif fnmatch(fname, "*.res"):
-            from pymatgen.io.res import ResIO
-
-            struct = ResIO.structure_from_file(filename, **kwargs)
-        elif fnmatch(fname.lower(), "*.config*") or fnmatch(fname.lower(), "*.pwmat*"):
-            from pymatgen.io.pwmat import AtomConfig
-
-            struct = AtomConfig.from_file(filename, **kwargs).structure
-        else:
-            raise ValueError(f"Unrecognized extension in {filename=}")
+        struct = dispatch_read_file(handler, filename, primitive=primitive, **kwargs)
         if sort:
             struct = struct.get_sorted_structure()
         if merge_tol:
@@ -4092,57 +3802,30 @@ class IMolecule(SiteCollection, MSONable):
                 is provided. If fmt is specifies, it overrides whatever the
                 filename is. Options include "xyz", "gjf", "g03", "json". If
                 you have OpenBabel installed, any of the formats supported by
-                OpenBabel. Non-case sensitive.
+                OpenBabel. Any format registered via `pymatgen.io.registry`
+                is also accepted. Case-insensitive.
 
         Returns:
             str: String representation of molecule in given format. If a filename
                 is provided, the same string is written to the file.
         """
+        from pymatgen.io.registry import dispatch_write, get_molecule_format
+
         filename = str(filename)
         fmt = fmt.lower()
 
-        writer: Any
-        if fmt == "xyz" or fnmatch(filename.lower(), "*.xyz*"):
-            from pymatgen.io.xyz import XYZ
+        if not filename and not fmt:
+            fmt = "json"
 
-            writer = XYZ(self)
-
-        elif any(fmt == ext or fnmatch(filename.lower(), f"*.{ext}*") for ext in ("gjf", "g03", "g09", "com", "inp")):
-            from pymatgen.io.gaussian import GaussianInput
-
-            writer = GaussianInput(self)
-
-        elif fmt == "json" or fnmatch(filename, "*.json*") or fnmatch(filename, "*.mson*"):
-            json_str = orjson.dumps(self.as_dict(), option=orjson.OPT_SERIALIZE_NUMPY).decode()
-
-            if filename:
-                with zopen(filename, mode="wt", encoding="utf-8") as file:
-                    file.write(json_str)  # type:ignore[arg-type]
-            return json_str
-
-        elif fmt in {"yaml", "yml"} or fnmatch(filename, "*.yaml*") or fnmatch(filename, "*.yml*"):
-            yaml = YAML()
-            str_io = io.StringIO()
-            yaml.dump(self.as_dict(), str_io)
-            yaml_str = str_io.getvalue()
-            if filename:
-                with zopen(filename, mode="wt", encoding="utf-8") as file:
-                    file.write(yaml_str)  # type:ignore[arg-type]
-            return yaml_str
-
-        else:
-            from pymatgen.io.babel import BabelMolAdaptor
-
+        # If filename has a babel-only extension but no fmt was specified,
+        # infer the format from the extension (preserves legacy behavior).
+        if not fmt and filename:
             match = re.search(r"\.(pdb|mol|mdl|sdf|sd|ml2|sy2|mol2|cml|mrv)", filename.lower())
-            if not fmt and match:
+            if match:
                 fmt = match[1]
-            writer = BabelMolAdaptor(self)
-            return writer.write_file(filename, file_format=fmt)
 
-        if filename:
-            writer.write_file(filename)
-
-        return str(writer)
+        handler = get_molecule_format(name=fmt, filename=filename)
+        return dispatch_write(handler, self, filename)
 
     @classmethod
     def from_str(  # type:ignore[override]
@@ -4154,53 +3837,29 @@ class IMolecule(SiteCollection, MSONable):
 
         Args:
             input_string (str): String to parse.
-            fmt (str): Format to output to. Defaults to JSON unless filename
-                is provided. If fmt is specifies, it overrides whatever the
-                filename is. Options include "xyz", "gjf", "g03", "json". If
-                you have OpenBabel installed, any of the formats supported by
-                OpenBabel. Non-case sensitive.
+            fmt (str): Format to output to. Options include "xyz", "gjf", "g03",
+                "json", or any format registered via `pymatgen.io.registry`.
+                If you have OpenBabel installed, any of the formats supported by
+                OpenBabel. Case-insensitive.
 
         Returns:
             IMolecule or Molecule.
         """
-        fmt = cast(
-            "Literal['xyz', 'gjf', 'g03', 'g09', 'com', 'inp', 'json', 'yaml']",
-            fmt.lower(),
-        )
+        from pymatgen.io.registry import dispatch_read_str, get_molecule_format
 
-        if fmt == "xyz":
-            from pymatgen.io.xyz import XYZ
-
-            mol = XYZ.from_str(input_string).molecule
-
-        elif fmt in {"gjf", "g03", "g09", "com", "inp"}:
-            from pymatgen.io.gaussian import GaussianInput
-
-            mol = GaussianInput.from_str(input_string).molecule
-
-        elif fmt == "json":
-            dct = orjson.loads(input_string)
-            return cls.from_dict(dct)
-
-        elif fmt in {"yaml", "yml"}:
-            yaml = YAML()
-            dct = yaml.load(input_string)
-            return cls.from_dict(dct)
-
-        else:
-            from pymatgen.io.babel import BabelMolAdaptor
-
-            mol = BabelMolAdaptor.from_str(input_string, file_format=fmt).pymatgen_mol
-
+        handler = get_molecule_format(name=fmt.lower())
+        mol = dispatch_read_str(handler, input_string)
+        if isinstance(mol, dict):  # pragma: no cover — defensive; readers should return Molecules
+            return cls.from_dict(mol)
         return cls.from_sites(mol, properties=mol.properties)
 
     @classmethod
     def from_file(cls, filename: PathLike) -> IMolecule | Molecule:  # type:ignore[override]
         """Read a molecule from a file. Supported formats include xyz,
-        gaussian input (gjf|g03|g09|com|inp), Gaussian output (.out|and
-        pymatgen's JSON-serialized molecules. Using openbabel,
-        many more extensions are supported but requires openbabel to be
-        installed.
+        gaussian input (gjf|g03|g09|com|inp), Gaussian output (.out, .lis, .log),
+        pymatgen's JSON-serialized molecules, and any format registered via
+        `pymatgen.io.registry`. Using openbabel, many more extensions are
+        supported but requires openbabel to be installed.
 
         Args:
             filename (PathLike): The file to read.
@@ -4208,37 +3867,19 @@ class IMolecule(SiteCollection, MSONable):
         Returns:
             Molecule
         """
+        from pymatgen.io.registry import dispatch_read_file, get_molecule_format
+
         filename = str(filename)
-        fname = filename.lower()
+        try:
+            handler = get_molecule_format(filename=filename)
+        except ValueError:
+            raise ValueError("Cannot determine file type.") from None
 
-        with zopen(filename, mode="rt", encoding="utf-8") as file:
-            contents: str = cast("str", file.read())
-
-        if fnmatch(fname, "*.xyz*"):
-            return cls.from_str(contents, fmt="xyz")
-
-        if any(fnmatch(fname.lower(), f"*.{r}*") for r in ("gjf", "g03", "g09", "com", "inp")):
-            return cls.from_str(contents, fmt="g09")
-
-        if any(fnmatch(fname.lower(), f"*.{r}*") for r in ("out", "lis", "log")):
-            from pymatgen.io.gaussian import GaussianOutput
-
-            return GaussianOutput(filename).final_structure
-
-        if fnmatch(fname, "*.json*") or fnmatch(fname, "*.mson*"):
-            return cls.from_str(contents, fmt="json")
-
-        if fnmatch(fname, "*.yaml*") or fnmatch(filename, "*.yml*"):
-            return cls.from_str(contents, fmt="yaml")
-
-        if match := re.search(r"\.(pdb|mol|mdl|sdf|sd|ml2|sy2|mol2|cml|mrv)", filename.lower()):
-            from pymatgen.io.babel import BabelMolAdaptor
-
-            new = BabelMolAdaptor.from_file(filename, match[1]).pymatgen_mol
-            new.__class__ = cls
-            return new
-
-        raise ValueError("Cannot determine file type.")
+        new = dispatch_read_file(handler, filename)
+        if isinstance(new, dict):  # pragma: no cover — defensive
+            return cls.from_dict(new)
+        new.__class__ = cls
+        return new
 
 
 class Structure(IStructure, collections.abc.MutableSequence):

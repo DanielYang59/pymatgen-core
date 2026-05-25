@@ -367,3 +367,94 @@ class BabelMolAdaptor:
         """
         mols = pybel.readstring(file_format, string_data)
         return cls(mols.OBMol)
+
+
+# ----------------------------------------------------------------------------
+# pymatgen.io.registry plugin: Molecule <-> OpenBabel-supported formats
+# ----------------------------------------------------------------------------
+
+# Extensions BabelMolAdaptor handles directly. Each is registered as its own
+# format; filename glob matching also covers compressed variants ("*.pdb*").
+_BABEL_FORMATS: tuple[str, ...] = (
+    "pdb",
+    "mol",
+    "mdl",
+    "sdf",
+    "sd",
+    "ml2",
+    "sy2",
+    "mol2",
+    "cml",
+    "mrv",
+)
+
+
+def _make_babel_read_str(file_format: str):
+    def _read_str(input_string: str, **kwargs):
+        return BabelMolAdaptor.from_str(input_string, file_format=file_format, **kwargs).pymatgen_mol
+
+    return _read_str
+
+
+def _make_babel_read_file(file_format: str):
+    def _read_file(filename: str, **kwargs):
+        return BabelMolAdaptor.from_file(filename, file_format=file_format, **kwargs).pymatgen_mol
+
+    return _read_file
+
+
+def _make_babel_write_str(file_format: str):
+    def _write_str(molecule, **kwargs):
+        # BabelMolAdaptor has no string output; serialize via a temp file.
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=f".{file_format}", delete=False) as fh:
+            tmp = fh.name
+        try:
+            BabelMolAdaptor(molecule).write_file(tmp, file_format=file_format)
+            with open(tmp, encoding="utf-8") as f:
+                return f.read()
+        finally:
+            os.unlink(tmp)
+
+    return _write_str
+
+
+def _make_babel_write_file(file_format: str):
+    def _write_file(molecule, filename, **kwargs):
+        BabelMolAdaptor(molecule).write_file(filename, file_format=file_format)
+
+    return _write_file
+
+
+def _register_formats() -> None:
+    from pymatgen.io.registry import MoleculeFormat, register_molecule_format
+
+    for fmt in _BABEL_FORMATS:
+        register_molecule_format(
+            MoleculeFormat(
+                name=fmt,
+                patterns=(f"*.{fmt}*",),
+                read_str=_make_babel_read_str(fmt),
+                read_file=_make_babel_read_file(fmt),
+                write_str=_make_babel_write_str(fmt),
+                write_file=_make_babel_write_file(fmt),
+            )
+        )
+    # Generic "babel" alias that uses the caller-supplied file_format kwarg.
+    register_molecule_format(
+        MoleculeFormat(
+            name="babel",
+            patterns=(),
+            read_str=lambda s, file_format="xyz", **kw: (
+                BabelMolAdaptor.from_str(s, file_format=file_format, **kw).pymatgen_mol
+            ),
+            read_file=lambda fn, file_format="xyz", **kw: (
+                BabelMolAdaptor.from_file(fn, file_format=file_format, **kw).pymatgen_mol
+            ),
+        )
+    )
+
+
+_register_formats()

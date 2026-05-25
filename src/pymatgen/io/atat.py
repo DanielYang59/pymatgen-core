@@ -139,3 +139,35 @@ class Mcsqs:
             all_species.append(species)
 
         return Structure(lattice, all_species, all_coords)
+
+
+# ----------------------------------------------------------------------------
+# pymatgen.io.registry plugin: Structure <-> mcsqs (rndstr.in / lat.in / bestsqs)
+# ----------------------------------------------------------------------------
+
+
+def _mcsqs_read_str(input_string: str, **kwargs):
+    from pymatgen.io.registry import filter_kwargs
+
+    kwargs.pop("primitive", None)
+    return Mcsqs.structure_from_str(input_string, **filter_kwargs(Mcsqs.structure_from_str, kwargs))
+
+
+def _mcsqs_write_str(structure, **kwargs) -> str:
+    return Mcsqs(structure).to_str()
+
+
+def _register_formats() -> None:
+    from pymatgen.io.registry import StructureFormat, register_structure_format
+
+    register_structure_format(
+        StructureFormat(
+            name="mcsqs",
+            patterns=("*rndstr.in*", "*lat.in*", "*bestsqs*"),
+            read_str=_mcsqs_read_str,
+            write_str=_mcsqs_write_str,
+        )
+    )
+
+
+_register_formats()

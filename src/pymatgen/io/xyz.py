@@ -152,3 +152,39 @@ class XYZ:
         """
         with zopen(filename, mode="wt", encoding="utf-8") as file:
             file.write(str(self))  # type:ignore[arg-type]
+
+
+# ----------------------------------------------------------------------------
+# pymatgen.io.registry plugin: Molecule <-> XYZ
+# ----------------------------------------------------------------------------
+
+
+def _xyz_read_str(input_string: str, **kwargs):
+    from pymatgen.io.registry import filter_kwargs
+
+    return XYZ.from_str(input_string, **filter_kwargs(XYZ.from_str, kwargs)).molecule
+
+
+def _xyz_write_str(molecule, **kwargs) -> str:
+    return str(XYZ(molecule, **kwargs))
+
+
+def _xyz_write_file(molecule, filename, **kwargs) -> None:
+    XYZ(molecule, **kwargs).write_file(filename)
+
+
+def _register_formats() -> None:
+    from pymatgen.io.registry import MoleculeFormat, register_molecule_format
+
+    register_molecule_format(
+        MoleculeFormat(
+            name="xyz",
+            patterns=("*.xyz*",),
+            read_str=_xyz_read_str,
+            write_str=_xyz_write_str,
+            write_file=_xyz_write_file,
+        )
+    )
+
+
+_register_formats()

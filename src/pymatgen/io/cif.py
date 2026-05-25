@@ -1793,3 +1793,58 @@ class CifWriter:
         """Write the CIF file."""
         with zopen(filename, mode=mode, encoding="utf-8") as file:
             file.write(str(self))  # type:ignore[arg-type]
+
+
+# ----------------------------------------------------------------------------
+# pymatgen.io.registry plugin: Structure <-> CIF / mCIF
+# ----------------------------------------------------------------------------
+
+
+def _cif_read_str(cif_string: str, *, primitive: bool = False, **kwargs):
+    """Adapter for `Structure.from_str(s, fmt="cif")` / `"mcif"`."""
+    from pymatgen.io.registry import filter_kwargs
+
+    parser = CifParser.from_str(cif_string, **filter_kwargs(CifParser.from_str, kwargs))
+    return parser.parse_structures(primitive=primitive)[0]
+
+
+def _cif_write_str(structure, **kwargs) -> str:
+    return str(CifWriter(structure, **kwargs))
+
+
+def _cif_write_file(structure, filename, **kwargs) -> None:
+    CifWriter(structure, **kwargs).write_file(filename)
+
+
+def _mcif_write_str(structure, **kwargs) -> str:
+    return str(CifWriter(structure, write_magmoms=True, **kwargs))
+
+
+def _mcif_write_file(structure, filename, **kwargs) -> None:
+    CifWriter(structure, write_magmoms=True, **kwargs).write_file(filename)
+
+
+def _register_formats() -> None:
+    from pymatgen.io.registry import StructureFormat, register_structure_format
+
+    register_structure_format(
+        StructureFormat(
+            name="cif",
+            patterns=("*.cif*",),
+            read_str=_cif_read_str,
+            write_str=_cif_write_str,
+            write_file=_cif_write_file,
+        )
+    )
+    register_structure_format(
+        StructureFormat(
+            name="mcif",
+            patterns=("*.mcif*",),
+            read_str=_cif_read_str,
+            write_str=_mcif_write_str,
+            write_file=_mcif_write_file,
+        )
+    )
+
+
+_register_formats()

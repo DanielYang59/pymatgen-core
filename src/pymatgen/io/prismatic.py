@@ -39,3 +39,27 @@ class Prismatic:
         lines.append("-1")
 
         return "\n".join(lines)
+
+
+# ----------------------------------------------------------------------------
+# pymatgen.io.registry plugin: Structure -> Prismatic (write-only)
+# ----------------------------------------------------------------------------
+
+
+def _prismatic_write_str(structure, **kwargs) -> str:
+    return Prismatic(structure, **kwargs).to_str()
+
+
+def _register_formats() -> None:
+    from pymatgen.io.registry import StructureFormat, register_structure_format
+
+    register_structure_format(
+        StructureFormat(
+            name="prismatic",
+            patterns=("*prismatic*",),
+            write_str=_prismatic_write_str,
+        )
+    )
+
+
+_register_formats()

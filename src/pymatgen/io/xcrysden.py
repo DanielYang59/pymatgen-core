@@ -861,3 +861,67 @@ class AnimatedXSF:
     def as_trajectory(self) -> Trajectory:
         """Convert periodic AXSF frames to a pymatgen trajectory."""
         raise NotImplementedError("Conversion from AnimatedXSF to Trajectory is not implemented yet")
+
+
+# ----------------------------------------------------------------------------
+# pymatgen.io.registry plugin: Structure <-> XSF
+# ----------------------------------------------------------------------------
+
+
+def _xsf_read_str(input_string: str, **kwargs):
+    from pymatgen.core.structure import Molecule as _Molecule
+    from pymatgen.io.registry import filter_kwargs
+
+    kwargs.pop("primitive", None)
+    xsf = XSF.from_str(input_string, **filter_kwargs(XSF.from_str, kwargs))
+    if xsf.structure is None:
+        raise ValueError("XSF data does not contain a structure; use XSF.from_str for grids or band data")
+    if isinstance(xsf.structure, _Molecule):
+        # Preserve legacy ValueError (see Structure.from_str pre-refactor).
+        raise ValueError("XSF data contains a Molecule; use pymatgen.io.xcrysden.XSF for molecular data")  # noqa: TRY004
+    struct = xsf.structure
+    struct.properties.update(xsf.structure_properties())
+    return struct
+
+
+def _xsf_read_file(filename: str, **kwargs):
+    from pymatgen.core.structure import Molecule as _Molecule
+    from pymatgen.io.registry import filter_kwargs
+
+    kwargs.pop("primitive", None)
+    with zopen(filename, mode="rb") as file:
+        xsf = XSF.parse_file(file, **filter_kwargs(XSF.parse_file, kwargs))
+    if xsf.structure is None:
+        raise ValueError("XSF data does not contain a structure; use XSF.from_file for grids or band data")
+    if isinstance(xsf.structure, _Molecule):
+        # Preserve legacy ValueError (see Structure.from_str pre-refactor).
+        raise ValueError("XSF data contains a Molecule; use pymatgen.io.xcrysden.XSF for molecular data")  # noqa: TRY004
+    struct = xsf.structure
+    struct.properties.update(xsf.structure_properties())
+    return struct
+
+
+def _xsf_write_str(structure, **kwargs) -> str:
+    return XSF(structure).to_str(**kwargs)
+
+
+def _xsf_write_file(structure, filename, **kwargs) -> None:
+    XSF(structure).write_file(filename, **kwargs)
+
+
+def _register_formats() -> None:
+    from pymatgen.io.registry import StructureFormat, register_structure_format
+
+    register_structure_format(
+        StructureFormat(
+            name="xsf",
+            patterns=("*.xsf*",),
+            read_str=_xsf_read_str,
+            read_file=_xsf_read_file,
+            write_str=_xsf_write_str,
+            write_file=_xsf_write_file,
+        )
+    )
+
+
+_register_formats()

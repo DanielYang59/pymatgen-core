@@ -674,3 +674,48 @@ class ResIO:
     def entry_to_file(cls, entry: ComputedStructureEntry, filename: str) -> None:
         """Write a pymatgen ComputedStructureEntry to a res file."""
         return ResWriter(entry).write(filename)
+
+
+# ----------------------------------------------------------------------------
+# pymatgen.io.registry plugin: Structure <-> AIRSS res
+# ----------------------------------------------------------------------------
+
+
+def _res_read_str(input_string: str, **kwargs):
+    from pymatgen.io.registry import filter_kwargs
+
+    kwargs.pop("primitive", None)
+    return ResIO.structure_from_str(input_string, **filter_kwargs(ResIO.structure_from_str, kwargs))
+
+
+def _res_read_file(filename: str, **kwargs):
+    from pymatgen.io.registry import filter_kwargs
+
+    kwargs.pop("primitive", None)
+    return ResIO.structure_from_file(filename, **filter_kwargs(ResIO.structure_from_file, kwargs))
+
+
+def _res_write_str(structure, **kwargs) -> str:
+    return ResIO.structure_to_str(structure)
+
+
+def _res_write_file(structure, filename, **kwargs) -> None:
+    ResIO.structure_to_file(structure, filename)
+
+
+def _register_formats() -> None:
+    from pymatgen.io.registry import StructureFormat, register_structure_format
+
+    register_structure_format(
+        StructureFormat(
+            name="res",
+            patterns=("*.res",),
+            read_str=_res_read_str,
+            read_file=_res_read_file,
+            write_str=_res_write_str,
+            write_file=_res_write_file,
+        )
+    )
+
+
+_register_formats()
