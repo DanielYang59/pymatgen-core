@@ -1649,7 +1649,7 @@ class BSPlotterProjected(BSPlotter):
                 2 columns.
 
         Returns:
-            A pyplot object with different subfigures for different projections.
+            A list of plt.Axes with different subplots for different projections.
             The blue and red colors lines are bands
             for spin up and spin down. The green and cyan dots are projections
             for spin up and spin down. The bigger
@@ -1670,7 +1670,7 @@ class BSPlotterProjected(BSPlotter):
             )
 
         band_linewidth = 0.5
-        ax = pretty_plot(w_h_size[0], w_h_size[1])
+        fig_main = plt.figure(figsize=w_h_size)
         proj_br_d, dictio_d, dictpa_d, branches = self._get_projections_by_branches_patom_pmorb(
             dictio, dictpa, sum_atoms, sum_morbs, selected_branches
         )
@@ -1688,19 +1688,16 @@ class BSPlotterProjected(BSPlotter):
                     count += 1
                     if num_column is None:
                         if n_figs == 1:
-                            plt.subplot(1, 1, 1)
+                            ax = plt.subplot(1, 1, 1)
                         else:
                             row = n_figs // 2
-                            if n_figs % 2 == 0:
-                                plt.subplot(row, 2, count)
-                            else:
-                                plt.subplot(row + 1, 2, count)
+                            ax = plt.subplot(row, 2, count) if n_figs % 2 == 0 else plt.subplot(row + 1, 2, count)
                     elif isinstance(num_column, int):
-                        row = n_figs / num_column
+                        row = n_figs // num_column
                         if n_figs % num_column == 0:
-                            plt.subplot(row, num_column, count)
+                            ax = plt.subplot(row, num_column, count)
                         else:
-                            plt.subplot(row + 1, num_column, count)
+                            ax = plt.subplot(row + 1, num_column, count)
                     else:
                         raise ValueError("The invalid 'num_column' is assigned. It should be an integer.")
 
@@ -1763,8 +1760,7 @@ class BSPlotterProjected(BSPlotter):
                     else:
                         ax.set_ylim(ylim)
                     ax.set_title(f"{elt} {numa} {o}")
-
-        return ax
+        return fig_main.get_axes()
 
     @classmethod
     def _Orbitals_SumOrbitals(cls, dictio, sum_morbs):
