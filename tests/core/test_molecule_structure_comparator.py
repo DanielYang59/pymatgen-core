@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from pymatgen.core.molecule_structure_comparator import MoleculeStructureComparator
 from pymatgen.core.structure import Molecule
 from pymatgen.io.qchem.outputs import QCOutput
