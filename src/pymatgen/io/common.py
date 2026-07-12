@@ -425,7 +425,7 @@ class VolumetricData(MSONable):
         atom_data_start = 6
         atom_data_end = atom_data_start + n_atoms
         sites = [
-            Site(line.split()[0], np.array(line.split()[2:], dtype=float) * bohr_to_angstrom - origin) # type:ignore[arg-type]
+            Site(line.split()[0], np.array(line.split()[2:], dtype=float) * bohr_to_angstrom - origin)  # type:ignore[arg-type]
             for line in lines[atom_data_start:atom_data_end]
         ]
 
