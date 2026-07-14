@@ -383,10 +383,14 @@ class TestPackmolSet(MatSciTest):
         out = Molecule.from_file(f"{self.tmp_path}/with_constraints/output.xyz")
         assert out.composition.num_atoms == 110
         for site in out:
+            # Tolerances are loosened relative to the exact constraint radii (5.0 and 10.0) because
+            # packmol performs the placement externally and its optimizer can leave atoms slightly
+            # outside the requested precision, with the deviation varying across CPU architectures
+            # (see https://github.com/materialsproject/pymatgen-core/issues/70).
             if site.specie.symbol == "He":
-                assert np.linalg.norm(site.coords) <= 5.01
+                assert np.linalg.norm(site.coords) <= 5.03
             else:
-                assert 4.99 <= np.linalg.norm(site.coords) <= 10.01
+                assert 4.97 <= np.linalg.norm(site.coords) <= 10.03
 
     def test_atoms_constraints(self):
         """
@@ -423,7 +427,11 @@ class TestPackmolSet(MatSciTest):
         out = Molecule.from_file(f"{self.tmp_path}/with_atoms_constraints/output.xyz")
         assert out.composition.num_atoms == 15
         for site in out:
+            # Tolerances are loosened relative to the exact constraint radii (5.5 and 5.0) because
+            # packmol performs the placement externally and its optimizer can leave atoms slightly
+            # outside the requested precision, with the deviation varying across CPU architectures
+            # (see https://github.com/materialsproject/pymatgen-core/issues/70).
             if site.specie.symbol == "H":
-                assert np.linalg.norm(site.coords) >= 5.49
+                assert np.linalg.norm(site.coords) >= 5.48
             else:
-                assert np.linalg.norm(site.coords) <= 5.01
+                assert np.linalg.norm(site.coords) <= 5.03
