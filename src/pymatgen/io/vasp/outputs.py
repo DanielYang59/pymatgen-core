@@ -692,7 +692,7 @@ class Vasprun(MSONable):
                 the unit is cm^-1.
                 """
                 hc = _const.h * _const.c / _const.e * 100  # eV*cm (J*m -> eV*cm)
-                return 2 * 3.14159 * np.sqrt(np.sqrt(real**2 + imag**2) - real) * np.sqrt(2) / hc * freq
+                return math.tau * math.sqrt(math.sqrt(real**2 + imag**2) - real) * math.sqrt(2) / hc * freq
 
             return list(
                 itertools.starmap(
