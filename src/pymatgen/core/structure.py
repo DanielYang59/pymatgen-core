@@ -4741,7 +4741,7 @@ class Structure(IStructure, collections.abc.MutableSequence):
         """Rapidly construct common prototype structures.
 
         Args:
-            prototype: Name of prototype. e.g. cubic, rocksalt, perovksite etc.
+            prototype: Name of prototype. e.g. cubic, rocksalt, perovskite etc.
             species: List of species corresponding to symmetrically distinct sites.
             **kwargs: Lattice parameters, e.g. a = 3.0, b = 4, c = 5. Only the required lattice parameters need to be
                 specified. For example, if it is a cubic prototype, only a needs to be specified.

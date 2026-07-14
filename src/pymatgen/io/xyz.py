@@ -114,7 +114,7 @@ class XYZ:
         with zopen(filename, mode="rt", encoding="utf-8") as file:
             return cls.from_str(file.read())  # type:ignore[arg-type]
 
-    def as_dataframe(self):
+    def as_dataframe(self) -> pd.DataFrame:
         """Generate a coordinates data frame with columns: atom, x, y, and z
         In case of multiple frame XYZ, returns the last frame.
 
@@ -134,14 +134,16 @@ class XYZ:
         df_xyz.index += 1
         return df_xyz
 
-    def _frame_str(self, frame_mol):
+    def _frame_str(self, frame_mol: SiteCollection) -> str:
+        if not frame_mol.is_ordered:
+            raise ValueError("xyz only supports ordered sites.")
         output = [str(len(frame_mol)), frame_mol.formula]
         prec = self.precision
         fmt = f"{{}} {{:.{prec}f}} {{:.{prec}f}} {{:.{prec}f}}"
         output.extend(fmt.format(site.specie, site.x, site.y, site.z) for site in frame_mol)
         return "\n".join(output)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "\n".join(self._frame_str(mol) for mol in self._mols)
 
     def write_file(self, filename: str) -> None:
