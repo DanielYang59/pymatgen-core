@@ -10,6 +10,7 @@ from pytest import approx
 from spglib import SpglibDataset
 
 from pymatgen.core import Lattice, Molecule, PeriodicSite, Site, Species, Structure
+from pymatgen.core.composition import Composition
 from pymatgen.io.vasp.outputs import Vasprun
 from pymatgen.symmetry.analyzer import (
     PointGroupAnalyzer,
@@ -462,6 +463,70 @@ class TestSpacegroupAnalyzer(MatSciTest):
         assert spg_analyzer.get_point_group_symbol() == "4/mmm"
         assert spg_analyzer.get_crystal_system() == "tetragonal"
         assert spg_analyzer.get_hall() == "-I 4 2"
+
+    def test_hexagonal_almost_rhombohedral(self):
+        """Test that #4679 is fixed (hexagonal lattice with a close to c is not rhombohedral)."""
+        species = [Composition({"Gd": 0.5}), Composition({"Se": 0.5}), Composition({"F": 0.5})]
+        structure = Structure(
+            lattice=[
+                [4.0570938, 0.0, 0.0],
+                [0.0, 4.0572993, 0.0],
+                [0.0, -2.02864965, 3.51372426],
+            ],
+            species=species,
+            coords=[
+                [0.67496701, 2.02864967, 1.17124141],
+                [2.70478423, -2.02864966e-8, 2.34248285],
+                [0.67734256, 0.0, 0.0],
+            ],
+            coords_are_cartesian=True,
+        )
+
+        sga = SpacegroupAnalyzer(structure, symprec=0.01)
+        primitive = sga.get_primitive_standard_structure()
+        # 3 atoms expected in primitive rhombohedral cell (not 9)
+        assert len(primitive) == 3
+
+        # Check that sites are still half-occupied
+        # (but do not force a specific site ordering)
+        assert primitive.sites[0].species in species
+
+        # Initialize a rhombohedral cell with a hexagonal lattice
+        spec = Composition({"H": 0.5})
+        hex_rhomb = Structure.from_spacegroup(166, Lattice.hexagonal(5, 7), [spec], coords=np.zeros((1, 3)))
+        assert len(hex_rhomb) == 3
+        # Primitive (rhombohedral) form should be 1/3, same spacegroup
+        primitive = SpacegroupAnalyzer(hex_rhomb).get_primitive_standard_structure()
+        assert len(primitive) == 1
+        prim_sga = SpacegroupAnalyzer(primitive)
+        # Symmetry unchanged
+        assert prim_sga.get_space_group_number() == 166
+        # Check that rhombohedral cells also use .species in primitivization
+        assert primitive.sites[0].species == spec
+        # Re-standardizaion leads back to 3 sites
+        re_standard = prim_sga.get_conventional_standard_structure()
+        assert len(re_standard) == 3
+
+    def test_primitivization_of_a_centered_cell(self):
+        """Test that an A-centered cell modifies gamma when primitivized."""
+        ortho_lattice = Lattice.orthorhombic(10, 11, 12)
+        species = ["Si", "Ge"]
+        # General sites
+        coords = [[0.137, 0.251, 0.389], [0.947, 0.370, 0.050]]
+        struct = Structure.from_spacegroup("Amm2", ortho_lattice, species, coords)
+        sga = SpacegroupAnalyzer(struct)
+
+        assert sga.get_space_group_number() == 38
+        # *gamma* is not 90° anymore
+        # (Note that this happens because the A-centering is changed to C-centering
+        # during standardization [without changing the saved space group!]. For normal
+        # A-centering it would be alpha != 90.)
+        lattice = sga.get_primitive_standard_structure().lattice
+        assert lattice.gamma != 90
+        # Due to the same standardization, the previous a parameter is unchanged in c
+        assert math.isclose(lattice.c, 10)
+        # and a/b are approximately equal
+        assert math.isclose(lattice.a, lattice.b)
 
     def test_bad_structure(self):
         struct = Structure(Lattice.cubic(5), ["H", "H"], [[0.0, 0.0, 0.0], [0.001, 0.0, 0.0]])

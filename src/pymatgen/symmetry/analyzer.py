@@ -235,7 +235,7 @@ class SpacegroupAnalyzer:
 
     def get_lattice_type(self) -> LatticeType:
         """Get the lattice for the structure, e.g. (triclinic, orthorhombic, cubic,
-        etc.).This is the same as the crystal system with the exception of the
+        etc.). This is the same as the crystal system with the exception of the
         hexagonal/rhombohedral lattice.
 
         Raises:
@@ -466,8 +466,8 @@ class SpacegroupAnalyzer:
         Args:
             mesh (3x1 array): The number of kpoint for the mesh needed in
                 each direction
-            is_shift (3x1 array): Whether to shift the kpoint grid. (1, 1,
-            1) means all points are shifted by 0.5, 0.5, 0.5.
+            is_shift (3x1 array): Whether to shift the kpoint grid. (1, 1, 1)
+                means all points are shifted by 0.5, 0.5, 0.5.
 
         Returns:
             A list of irreducible kpoints and their weights as a list of
@@ -493,8 +493,8 @@ class SpacegroupAnalyzer:
         Args:
             mesh (3x1 array): The number of kpoint for the mesh needed in
                 each direction
-            is_shift (3x1 array): Whether to shift the kpoint grid. (1, 1,
-            1) means all points are shifted by 0.5, 0.5, 0.5.
+            is_shift (3x1 array): Whether to shift the kpoint grid. (1, 1, 1)
+                means all points are shifted by 0.5, 0.5, 0.5.
 
         Returns:
             A tuple containing two numpy.ndarray. The first is the mesh in
@@ -514,44 +514,44 @@ class SpacegroupAnalyzer:
         international_monoclinic: bool = True,
     ) -> NDArray:
         """Get the transformation matrix to transform a conventional unit cell to a
-        primitive cell according to certain standards the standards are defined in
+        primitive cell according to certain standards. The standards are defined in
         Setyawan, W., & Curtarolo, S. (2010). High-throughput electronic band structure
         calculations: Challenges and tools. Computational Materials Science, 49(2),
         299-312. doi:10.1016/j.commatsci.2010.05.010.
 
         Args:
             international_monoclinic (bool): Whether to convert to proper international convention
-                such that beta is the non-right angle.
+                such that beta is the non-right angle. Unused.
 
         Returns:
-            Transformation matrix to go from conventional to primitive cell
+            Transformation matrix to go from conventional to primitive cell.
+
+        Notes:
+            Note that for face-centered space groups (C-/A-centered), standardization to C-centering
+            is expected. Therefore, the transformation matrix C->P is returned.
         """
-        conv = self.get_conventional_standard_structure(international_monoclinic=international_monoclinic)
-        lattice = self.get_lattice_type()
+        space_group = self.get_space_group_symbol()
 
-        if "P" in self.get_space_group_symbol() or lattice == "hexagonal":
-            return np.eye(3)
+        if space_group.startswith("P"):
+            return np.eye(3, dtype=np.float64)
 
-        if lattice == "rhombohedral":
-            # Check if the conventional representation is hexagonal or
-            # rhombohedral
-            lengths = conv.lattice.lengths
-            if abs(lengths[0] - lengths[2]) < 1e-4:
-                return np.eye(3)
+        if space_group.startswith("R"):
             return np.array([[-1, 1, 1], [2, 1, 1], [-1, -2, 1]], dtype=np.float64) / 3
 
-        if "I" in self.get_space_group_symbol():
+        if space_group.startswith("I"):
             return np.array([[-1, 1, 1], [1, -1, 1], [1, 1, -1]], dtype=np.float64) / 2
 
-        if "F" in self.get_space_group_symbol():
+        if space_group.startswith("F"):
             return np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0]], dtype=np.float64) / 2
 
-        if "C" in self.get_space_group_symbol() or "A" in self.get_space_group_symbol():
+        # Convert face-centered cell. Note that this converts a C-centered cell,
+        # A-centered cells must be standardized to them beforehand.
+        if space_group.startswith(("C", "A")):
             if self.get_crystal_system() == "monoclinic":
                 return np.array([[1, 1, 0], [-1, 1, 0], [0, 0, 2]], dtype=np.float64) / 2
             return np.array([[1, -1, 0], [1, 1, 0], [0, 0, 2]], dtype=np.float64) / 2
 
-        return np.eye(3)
+        raise ValueError(f"Unrecognized space group {space_group}.")
 
     @cite_conventional_cell_algo
     def get_primitive_standard_structure(
@@ -583,9 +583,8 @@ class SpacegroupAnalyzer:
             international_monoclinic=international_monoclinic,
             keep_site_properties=keep_site_properties,
         )
-        lattype = self.get_lattice_type()
 
-        if "P" in self.get_space_group_symbol() or lattype == "hexagonal":
+        if self.get_space_group_symbol().startswith("P"):
             return conv
 
         transf = self.get_conventional_to_primitive_transformation_matrix(
@@ -593,7 +592,7 @@ class SpacegroupAnalyzer:
         )
 
         new_sites: list[PeriodicSite] = []
-        lattice = Lattice(np.dot(transf, conv.lattice.matrix))
+        lattice = Lattice(transf @ conv.lattice.matrix)
         for site in conv:
             new_s = PeriodicSite(
                 site.species,
@@ -606,12 +605,9 @@ class SpacegroupAnalyzer:
             if not any(map(new_s.is_periodic_image, new_sites)):
                 new_sites.append(new_s)
 
-        if lattice == "rhombohedral":
-            prim = Structure.from_sites(new_sites)
-            lengths = prim.lattice.lengths
-            angles = prim.lattice.angles
-            a = lengths[0]
-            alpha = math.pi * angles[0] / 180
+        if self.get_lattice_type() == "rhombohedral":
+            a = lattice.a
+            alpha = math.radians(lattice.alpha)
             new_matrix = [
                 [a * cos(alpha / 2), -a * sin(alpha / 2), 0],
                 [a * cos(alpha / 2), a * sin(alpha / 2), 0],
@@ -621,19 +617,19 @@ class SpacegroupAnalyzer:
                     a * math.sqrt(1 - (cos(alpha) ** 2 / (cos(alpha / 2) ** 2))),
                 ],
             ]
-            new_sites = []
+            rhomb_sites = []
             lattice = Lattice(new_matrix)
-            for site in prim:
+            for site in new_sites:
                 new_s = PeriodicSite(
-                    site.specie,
+                    site.species,
                     site.frac_coords,
                     lattice,
                     to_unit_cell=True,
                     properties=site.properties,
                 )
                 if not any(map(new_s.is_periodic_image, new_sites)):
-                    new_sites.append(new_s)
-            return Structure.from_sites(new_sites)
+                    rhomb_sites.append(new_s)
+            new_sites = rhomb_sites
 
         return Structure.from_sites(new_sites)
 
@@ -697,9 +693,8 @@ class SpacegroupAnalyzer:
                 for idx in range(2):
                     transf[idx][sorted_dic[idx]["orig_index"]] = 1
                 c = lattice.abc[2]
-            elif self.get_space_group_symbol().startswith(
-                "A"
-            ):  # change to C-centering to match Setyawan/Curtarolo convention
+            # change to C-centering to match Setyawan/Curtarolo convention
+            elif self.get_space_group_symbol().startswith("A"):
                 transf[2] = [1, 0, 0]
                 a, b = sorted(lattice.abc[1:])
                 sorted_dic = sorted(
@@ -741,10 +736,13 @@ class SpacegroupAnalyzer:
             # check first if we have the refined structure shows a rhombohedral
             # cell
             # if so, make a supercell
-            a, b, c = lattice.abc
-            if np.all(np.abs([a - b, c - b, a - c]) < 0.001):
+            if np.allclose(lattice.abc, lattice.a, atol=1e-3, rtol=0.0) and np.allclose(
+                lattice.angles, lattice.alpha, atol=1e-2, rtol=0.0
+            ):
                 struct.make_supercell(((1, -1, 0), (0, 1, -1), (1, 1, 1)))
                 a, b, c = sorted(struct.lattice.abc)
+            else:
+                a, b, c = lattice.abc
 
             if abs(b - c) < 0.001:
                 a, c = c, a
@@ -776,13 +774,13 @@ class SpacegroupAnalyzer:
                 b = sorted_dic[1]["length"]
                 c = lattice.abc[2]
                 new_matrix = None
-                for tp2 in itertools.permutations(list(range(2)), 2):
+                for tp2 in itertools.permutations(range(2), 2):
                     m = lattice.matrix
                     latt2 = Lattice([m[tp2[0]], m[tp2[1]], m[2]])
                     lengths = latt2.lengths
                     angles = latt2.angles
                     alpha_degrees = angles[0]
-                    if alpha_degrees == 90:
+                    if math.isclose(alpha_degrees, 90, rel_tol=0, abs_tol=1e-10):
                         continue
 
                     transf = np.zeros(shape=(3, 3))
@@ -800,7 +798,7 @@ class SpacegroupAnalyzer:
                         a, b, c = lengths
                         alpha_degrees = angles[0]
 
-                    alpha_radians = math.pi * alpha_degrees / 180
+                    alpha_radians = math.radians(alpha_degrees)
                     new_matrix = [
                         [a, 0, 0],
                         [0, b, 0],
@@ -820,10 +818,10 @@ class SpacegroupAnalyzer:
                 # keep the ones with the non-90 angle=alpha and b<c
                 new_matrix = None
 
-                for tp3 in itertools.permutations(list(range(3)), 3):
+                for tp3 in itertools.permutations(range(3), 3):
                     m = lattice.matrix
                     a, b, c, alpha, beta, gamma = Lattice([m[tp3[0]], m[tp3[1]], m[tp3[2]]]).parameters
-                    if alpha == 90 or b >= c:
+                    if math.isclose(alpha, 90, rel_tol=0, abs_tol=1e-10) or b >= c:
                         continue
                     transf = np.zeros(shape=(3, 3))
                     transf[2][tp3[2]] = 1
@@ -837,7 +835,7 @@ class SpacegroupAnalyzer:
                         transf[0][tp3[0]] = 1
                         transf[1][tp3[1]] = 1
 
-                    alpha = math.pi * alpha / 180
+                    alpha = math.radians(alpha)
                     new_matrix = [
                         [a, 0, 0],
                         [0, b, 0],
@@ -871,7 +869,7 @@ class SpacegroupAnalyzer:
             lattice = struct.lattice
 
             a, b, c = lattice.lengths
-            alpha, beta, gamma = (math.pi * i / 180 for i in lattice.angles)
+            alpha, beta, gamma = (math.radians(i) for i in lattice.angles)
             new_matrix = None
             test_matrix = [
                 [a, 0, 0],
@@ -950,7 +948,7 @@ class SpacegroupAnalyzer:
 
             lattice = Lattice(new_matrix)  # type:ignore[arg-type]
 
-        new_coords = np.dot(transf, np.transpose(struct.frac_coords)).T  # type: ignore[arg-type]
+        new_coords = struct.frac_coords @ transf.T  # type: ignore[arg-type]
         new_struct = Structure(
             lattice,
             struct.species_and_occu,
