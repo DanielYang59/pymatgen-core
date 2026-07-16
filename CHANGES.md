@@ -1,24 +1,33 @@
 
 # Changelog
 
-## v2026.5.19
+## v2026.7.16
 
-**Volumetric I/O.** `VolumetricData.parse_file` for CHGCAR/LOCPOT/ELFCAR is now backed by a Cython fast-float parser (vendored single-header `fast_float` C port). Roughly 6× faster than the prior `_plain_loadtxt` path on real fixtures and ~11× with parallel scaling experiments on multi-GB inputs (sequential path is what ships).
+- PR #68 Refactor `IStructure`/`IMolecule` `{from_file,from_str,to}` onto a new `pymatgen.io.registry` module. Each `pymatgen.io.<format>` self-registers a `StructureFormat`/`MoleculeFormat` handler; built-in formats stay lazily imported (no added `from pymatgen.core import Structure` import cost) and third parties can plug in via the `pymatgen.io.structure_formats`/`pymatgen.io.molecule_formats` entry-point groups. User-facing behavior (aliases, filename-inference priority, error wording, kwarg warnings, default-to-JSON) is preserved; `aims`/`fleur` get fallback shims. (by @shyuep)
+- PR #62 Add static XCrySDen XSF support (`MOLECULE`/`POLYMER`/`SLAB`/`CRYSTAL`, plus DATAGRID/BANDGRID blocks) with round-trip writing; XSF extras are stored as flat structure properties (`grids/…`, `bands/…`). `CONVCOORD` and animated XSF remain unsupported. (by @hheei)
+- PR #81 `Vaspwave.get_chgcar()` now reads HDF5 charge-augmentation occupancies (`/charge/aug_occupancies_*`) into `Chgcar.data_aug`, so legacy CHGCAR augmentation sections round-trip through `Chgcar.write_file()`. (by @hheei)
+- PR #69 Extend `INCAR` list tokenization to accept scientific notation (e.g. `ROPT = 1e-3 1e-3 1e-3`), which previously parsed as `1 -3 1 -3 1 -3`. (by @kavanase)
+- PR #82 Further vectorize the Ewald summation (`_calc_recip`, `_calc_real_and_point`); ~10× speedup on 100+-atom systems. (by @Bud-Macaulay)
+- PR #72 Preserve `pbc` through structure transformations. `IStructure.__mul__`/`make_supercell` and other ops that build a new `Lattice` no longer silently reset `pbc` to `(True, True, True)`. (by @deepanshuaggarwal51)
+- PR #88 Overhaul standard-cell handling in `SpacegroupAnalyzer`: `get_primitive_standard_structure` now correctly detects rhombohedral lattices and handles disordered structures, builds the standard cell once, returns float64, and adds an angle check to `get_conventional_standard_structure` (fixes materialsproject/pymatgen#4679). (by @Sanftperlig)
+- PR #76 Rescale magmoms when `CifParser` expands symmetry-equivalent sites from `.mcif` files whose magnetic cell has unequal-length crystal axes (moment components are converted to Cartesian before applying the operation). (by @lan496)
+- PR #87 `VolumetricData.from_cube` now honors the grid origin on line 3 instead of discarding it, fixing incorrectly positioned structures for cube files with a nonzero origin (fixes #4607). (by @mminotaki)
+- PR #77 Re-allow generation of `Slab`s from disordered structures (regressed by #24 using `.species` instead of `.species_and_occu`). (by @Sanftperlig)
+- PR #78 Forward the `reduce` kwarg to recursive `IStructure.get_primitive_structure` calls so `SlabGenerator` finds smaller slabs when `primitive=True` (regressed by #24). (by @ThomasWarford)
+- PR #67 Do not require `projections` in `HighSymmKPath.get_continuous_path` (they are not a required field of `BandStructureSymmLine`). (by @esoteric-ephemera)
+- PR #85 Classify a run as HSE06 for `HFSCREEN` in [0.2, 0.21] rather than exactly 0.2, matching common 0.207/0.208 usage. (by @kavanase)
+- PR #64 Use trapezoidal integration for `FermiDos` DOS integration (more accurate carrier concentrations) and add `get_e_h_concs()` to expose individual electron/hole concentrations. (by @kavanase)
+- PR #90 Use `math.tau` for full-precision 2π and prefer `math.*` over `np.*` for scalar ops (fixes #89). (by @Sanftperlig)
+- PR #91 Raise an explicit `ValueError("xyz only supports ordered sites.")` when exporting disordered sites to `.xyz`, instead of a cryptic `AttributeError`. (by @Sanftperlig)
+- PR #73 Fix `get_projected_plots_dots` returning a non-`Axes` `ax` for single-row/column subplot layouts and a repeated-condition typo. (by @mias0356)
+- PR #74 Fix `_get_projections_by_branches_patom_pmorb` plotting `Spin.up` projections in place of `Spin.down`. (by @mias0356)
+- PR #52 Fix `get_projected_plots_dots_patom_pmorb` empty-subplot layout and integer-division of row count for `num_columns != 2`. (by @mias0356)
+- **Volumetric I/O.** `VolumetricData.parse_file` for CHGCAR/LOCPOT/ELFCAR is now backed by a Cython fast-float parser (vendored single-header `fast_float` C port). Roughly 6× faster than the prior `_plain_loadtxt` path on real fixtures and ~11× with parallel scaling experiments on multi-GB inputs (sequential path is what ships).
 - PR #59 `pymatgen.optimization.fast_parser.parse_n_doubles`: new Cython parser for ASCII double streams from binary file objects; `VolumetricData.parse_file` migrated off `np.loadtxt`. Bit-identical output verified against the prior path. (by @hheei, with review follow-ups)
 - PR #55 Remove POTCAR cryptographic hash validation (`PotcarSingle.verify_potcar`, `identify_potcar_hash_based`, the MD5/SHA256 file-hash lookup tables). The hash database is unmaintained and `UnknownPotcarWarning` was firing on perfectly valid newer POTCARs; the summary-stats validator (`PotcarSingle.is_valid`) remains the supported path. (by @shyuep)
 - PR #61 Replace deprecated `numpy.gcd`/`numpy.lcm` reductions with `math.gcd`/`math.lcm`; minor cleanup of redundant array dtype casts. (by @kavanase)
 - Route remaining hard-coded physical-constant literals (Bohr radius, Rydberg-eV, h·c, Abinit unit factors) through `pymatgen.core.constants` so future CODATA revisions update everywhere at once. `Vasprun` optical absorption now uses the CODATA-exact h·c/e value.
-
-**Fixes**
 - (#44) Correct RMSD formula in `molecule_matcher`: Kabsch/BruteForce/Hungarian/Genetic matchers now sum over the coordinate axis before averaging, matching the standard charnley/rmsd convention. Argmin selection is unchanged but reported RMSDs and user thresholds shift by √3. (by @shyuep)
-- Strip the `np.float64` type wrapper from `Lattice.__repr__` so lattice vectors render as plain floats under numpy 2.x.
-
-**Docs / CI / Tests**
-- (#30) Correct cod-tools attribution in `symm_ops.yaml` (the YAML mirrors COD::Spacegroups::Lookup::COD; header now points at cod-developers/cod-tools rather than the AiiDA wrapper). (by @shyuep)
-- Codecov: upload from the shard with `extras: optional` so reported coverage reflects ASE/seekpath/phonopy/hiphive-gated code; switch the upload action to OIDC (tokenless) auth after the shared `CODECOV_TOKEN` lost its repo binding.
-- Speed up the slowest test setups (lift heavy `setup_method` work to `setup_class`; vectorise the BSDOS projection generator) and add a conftest fixture that closes matplotlib figures between tests.
-- Expand coverage for `phonon.ir_spectra` (47%→75%) and `core.bond_valence` (57%→97%).
-- Skip the `extras: optional` test job on Windows (CI runtime, not a correctness change). PR #60 dependabot bump of faraday in `/docs`.
 
 ## v2026.5.17
 
