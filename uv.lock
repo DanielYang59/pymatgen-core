@@ -1831,15 +1831,15 @@ wheels = [
 
 [[package]]
 name = "monty"
-version = "2026.5.18"
+version = "2026.7.16"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "ruamel-yaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f4/d7/bd34aafa34d3cddd93c440e7cfb3371328079e864279708f64a871806eb7/monty-2026.5.18.tar.gz", hash = "sha256:b2d8d5c78030e889f6407fa9d8c8c4e3df05fc380251cdf85a119cd1e49c3fdd", size = 211830, upload-time = "2026-05-18T03:21:02.254Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/84/19/84e75646bc64083ea9a1904f01efadbd50a53b1d6a2989f275743e51c98b/monty-2026.7.16.tar.gz", hash = "sha256:2c51224b6715794cfbbb8202b9749077fad8e67b238b0ab6f2abb9bde33c2f86", size = 217428, upload-time = "2026-07-16T00:51:49.811Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/63/86120977f920798494c522c26899ffacde6d848e1eb018403f1d08044d0d/monty-2026.5.18-py3-none-any.whl", hash = "sha256:dd108b5c3cceb1f61de1a854db8ffda3dc7c2a2d4025b24cf397ade1121e7904", size = 59998, upload-time = "2026-05-18T03:21:00.059Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/84/664e1f392219c10ab027dec340f67ab8752a29e5361a90102a4856f21fe7/monty-2026.7.16-py3-none-any.whl", hash = "sha256:fadd48f18135128a6042d7efe80e301d5658178d441cb1e80a7d6624bd8e114d", size = 62568, upload-time = "2026-07-16T00:51:48.075Z" },
 ]
 
 [[package]]
@@ -3152,7 +3152,7 @@ requires-dist = [
     { name = "matgl", marker = "python_full_version < '3.13' and extra == 'matcalc'", specifier = ">=2.0.4" },
     { name = "matgl", marker = "python_full_version < '3.13' and extra == 'mlp'", specifier = ">=2.0.4" },
     { name = "matplotlib", specifier = ">=3.8" },
-    { name = "monty", specifier = ">=2026.5.18" },
+    { name = "monty", specifier = ">=2026.7.16" },
     { name = "moyopy", extras = ["interface"], marker = "extra == 'symmetry'", specifier = ">=0.3" },
     { name = "netcdf4", marker = "extra == 'abinit'", specifier = ">=1.7.2" },
     { name = "netcdf4", marker = "extra == 'optional'", specifier = ">=1.7.2" },
