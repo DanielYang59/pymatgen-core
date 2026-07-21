@@ -853,7 +853,7 @@ class GrainBoundaryGenerator:
 
         # For rhombohedral system, ratio = (1 + 2 * cos(alpha)) / cos(alpha)
         elif lat_type == "r":
-            cos_alpha = math.cos(structure.lattice.alpha / 180 * np.pi)
+            cos_alpha = math.cos(math.radians(structure.lattice.alpha))
             frac = Fraction((1 + 2 * cos_alpha) / cos_alpha).limit_denominator(max_denominator)
             ratio = [frac.numerator, frac.denominator]
 
@@ -1051,9 +1051,7 @@ class GrainBoundaryGenerator:
                 m = 0
                 n = 1
             else:
-                fraction = Fraction(
-                    np.tan(angle / 2 / 180.0 * np.pi) / np.sqrt(float(d) / 3.0 / mu)
-                ).limit_denominator()
+                fraction = Fraction(np.tan(math.radians(angle / 2)) / np.sqrt(float(d) / 3.0 / mu)).limit_denominator()
                 m = fraction.denominator
                 n = fraction.numerator
 
@@ -1110,7 +1108,7 @@ class GrainBoundaryGenerator:
                 m = 0
                 n = 1
             else:
-                fraction = Fraction(np.tan(angle / 2 / 180.0 * np.pi) / np.sqrt(float(d) / mu)).limit_denominator()
+                fraction = Fraction(np.tan(math.radians(angle / 2)) / np.sqrt(float(d) / mu)).limit_denominator()
                 m = fraction.denominator
                 n = fraction.numerator
 
@@ -1228,7 +1226,7 @@ class GrainBoundaryGenerator:
                 m = 0
                 n = 1
             else:
-                fraction = Fraction(np.tan(angle / 2 / 180.0 * np.pi) / np.sqrt(d / mu / lam)).limit_denominator()
+                fraction = Fraction(np.tan(math.radians(angle / 2)) / np.sqrt(d / mu / lam)).limit_denominator()
                 m = fraction.denominator
                 n = fraction.numerator
             r_list = [
@@ -1403,13 +1401,13 @@ class GrainBoundaryGenerator:
                             if m == 0:
                                 angle = 180.0
                             else:
-                                angle = 2 * np.arctan(n * np.sqrt(sum(np.array(r_axis) ** 2)) / m) / np.pi * 180
+                                angle = math.degrees(2 * np.arctan(n * np.sqrt(sum(np.array(r_axis) ** 2)) / m))
                             sigmas[sigma] = [angle]
                         else:
                             if m == 0:
                                 angle = 180.0
                             else:
-                                angle = 2 * np.arctan(n * np.sqrt(sum(np.array(r_axis) ** 2)) / m) / np.pi * 180
+                                angle = math.degrees(2 * np.arctan(n * np.sqrt(sum(np.array(r_axis) ** 2)) / m))
                             if angle not in sigmas[sigma]:
                                 sigmas[sigma].append(angle)
         return sigmas
@@ -1520,10 +1518,10 @@ class GrainBoundaryGenerator:
                     sigma = round((3 * mu * m**2 + d * n**2) / com_fac)
                     if 1 < sigma <= cutoff:
                         if sigma not in list(sigmas):
-                            angle = 180.0 if m == 0 else 2 * np.arctan(n / m * np.sqrt(d / 3.0 / mu)) / np.pi * 180
+                            angle = 180.0 if m == 0 else math.degrees(2 * np.arctan(n / m * np.sqrt(d / 3.0 / mu)))
                             sigmas[sigma] = [angle]
                         else:
-                            angle = 180.0 if m == 0 else 2 * np.arctan(n / m * np.sqrt(d / 3.0 / mu)) / np.pi * 180
+                            angle = 180.0 if m == 0 else math.degrees(2 * np.arctan(n / m * np.sqrt(d / 3.0 / mu)))
                             if angle not in sigmas[sigma]:
                                 sigmas[sigma].append(angle)
             if m_max == 0:
@@ -1649,10 +1647,10 @@ class GrainBoundaryGenerator:
                     sigma = round(abs(F / com_fac))
                     if 1 < sigma <= cutoff:
                         if sigma not in list(sigmas):
-                            angle = 180.0 if m == 0 else 2 * np.arctan(n / m * np.sqrt(d / mu)) / np.pi * 180
+                            angle = 180.0 if m == 0 else math.degrees(2 * np.arctan(n / m * np.sqrt(d / mu)))
                             sigmas[sigma] = [angle]
                         else:
-                            angle = 180 if m == 0 else 2 * np.arctan(n / m * np.sqrt(d / mu)) / np.pi * 180.0
+                            angle = 180 if m == 0 else math.degrees(2 * np.arctan(n / m * np.sqrt(d / mu)))
                             if angle not in sigmas[sigma]:
                                 sigmas[sigma].append(angle)
             if m_max == 0:
@@ -1750,10 +1748,10 @@ class GrainBoundaryGenerator:
                     sigma = round((mu * m**2 + d * n**2) / com_fac)
                     if 1 < sigma <= cutoff:
                         if sigma not in list(sigmas):
-                            angle = 180.0 if m == 0 else 2 * np.arctan(n / m * np.sqrt(d / mu)) / np.pi * 180
+                            angle = 180.0 if m == 0 else math.degrees(2 * np.arctan(n / m * np.sqrt(d / mu)))
                             sigmas[sigma] = [angle]
                         else:
-                            angle = 180.0 if m == 0 else 2 * np.arctan(n / m * np.sqrt(d / mu)) / np.pi * 180
+                            angle = 180.0 if m == 0 else math.degrees(2 * np.arctan(n / m * np.sqrt(d / mu)))
                             if angle not in sigmas[sigma]:
                                 sigmas[sigma].append(angle)
             if m_max == 0:
@@ -1888,10 +1886,10 @@ class GrainBoundaryGenerator:
                     sigma = round((mu * lam * m**2 + d * n**2) / com_fac)
                     if 1 < sigma <= cutoff:
                         if sigma not in list(sigmas):
-                            angle = 180.0 if m == 0 else 2 * np.arctan(n / m * np.sqrt(d / mu / lam)) / np.pi * 180
+                            angle = 180.0 if m == 0 else math.degrees(2 * np.arctan(n / m * np.sqrt(d / mu / lam)))
                             sigmas[sigma] = [angle]
                         else:
-                            angle = 180.0 if m == 0 else 2 * np.arctan(n / m * np.sqrt(d / mu / lam)) / np.pi * 180
+                            angle = 180.0 if m == 0 else math.degrees(2 * np.arctan(n / m * np.sqrt(d / mu / lam)))
                             if angle not in sigmas[sigma]:
                                 sigmas[sigma].append(angle)
             if m_max == 0:

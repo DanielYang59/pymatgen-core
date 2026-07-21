@@ -175,7 +175,7 @@ class Lattice(MSONable):
             jj = (dim + 1) % 3
             kk = (dim + 2) % 3
             angles[dim] = np.clip(np.dot(matrix[jj], matrix[kk]) / (lengths[jj] * lengths[kk]), -1, 1)
-        angles = np.arccos(angles) * 180.0 / np.pi  # type: ignore[assignment]
+        angles = np.rad2deg(np.arccos(angles))  # type: ignore[assignment]
         return tuple(angles.tolist())  # type: ignore[return-value]
 
     @cached_property
@@ -957,7 +957,7 @@ class Lattice(MSONable):
             x = np.inner(v1, v2) / l1[:, None] / l2
             x[x > 1] = 1
             x[x < -1] = -1
-            return np.arccos(x) * 180.0 / np.pi
+            return np.rad2deg(np.arccos(x))
 
         lengths = other_lattice.lengths
         alpha, beta, gamma = other_lattice.angles
@@ -1261,9 +1261,9 @@ class Lattice(MSONable):
         a = math.sqrt(A)
         b = math.sqrt(B)
         c = math.sqrt(C)
-        alpha = math.acos(E / 2 / b / c) / math.pi * 180
-        beta = math.acos(N / 2 / a / c) / math.pi * 180
-        gamma = math.acos(Y / 2 / a / b) / math.pi * 180
+        alpha = math.degrees(math.acos(E / 2 / b / c))
+        beta = math.degrees(math.acos(N / 2 / a / c))
+        gamma = math.degrees(math.acos(Y / 2 / a / b))
         lattice = type(self).from_parameters(a, b, c, alpha, beta, gamma)
 
         mapped = self.find_mapping(lattice, e, skip_rotation_matrix=True)

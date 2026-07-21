@@ -286,7 +286,7 @@ class SymmOp(MSONable):
 
         vec = np.asarray(translation_vec)
 
-        ang = angle if angle_in_radians else angle * np.pi / 180
+        ang = angle if angle_in_radians else math.radians(angle)
         cos_a = math.cos(ang)
         sin_a = math.sin(ang)
         unit_vec: NDArray = axis / np.linalg.norm(axis)  # type:ignore[call-overload]
@@ -324,7 +324,7 @@ class SymmOp(MSONable):
         Returns:
             SymmOp.
         """
-        theta: float = angle if angle_in_radians else angle * np.pi / 180
+        theta: float = angle if angle_in_radians else math.radians(angle)
         a: float
         b: float
         c: float
