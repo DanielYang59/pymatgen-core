@@ -1035,6 +1035,19 @@ Direct
         with pytest.raises(ValueError, match="Invalid backend='42'"):
             self.struct.get_symmetry_dataset(backend="42")
 
+    def test_siteless_structure(self):
+        """Test that a Structure without sites returns 2D coordinates."""
+        empty = IStructure(Lattice.cubic(1), [], np.empty((0, 3), dtype=np.float64))
+        assert empty.cart_coords.shape == (0, 3)
+        assert empty.frac_coords.shape == (0, 3)
+
+    def test_broken_coordinates(self):
+        """Test that broken coordinates cause an explicit error."""
+        # Second coordinate is only 2D
+        coords = [[0, 0, 0], [0.5, 0.5], [1, 1, 1]]
+        with pytest.raises(ValueError, match="Coordinates"):
+            IStructure(Lattice.cubic(1), ["H", "H", "H"], coords)
+
 
 class TestStructure(MatSciTest):
     def setup_method(self):

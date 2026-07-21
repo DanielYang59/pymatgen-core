@@ -487,6 +487,16 @@ class TestLattice(MatSciTest):
         output3 = lattice_pbc.get_all_distances(frac_coords[:-1], frac_coords)
         assert_allclose(output3, expected_pbc, 3)
 
+        # Test that an empty array does not crash the function
+        frac_coords_2 = np.empty((0, 3), dtype=np.float64)
+
+        dists = lattice.get_all_distances(frac_coords, frac_coords_2)
+        # Shape should preserve coordinate counts
+        assert dists.shape == (5, 0)
+        # Same match, the other way around
+        dists = lattice.get_all_distances(frac_coords_2, frac_coords)
+        assert dists.shape == (0, 5)
+
     def test_monoclinic(self):
         assert self.monoclinic.angles == approx([90, 66, 90])
         assert self.monoclinic.lengths == approx([10, 20, 30])

@@ -408,7 +408,9 @@ class SiteCollection(collections.abc.Sequence, ABC):
     @property
     def cart_coords(self) -> NDArray[np.float64]:
         """An np.array of the Cartesian coordinates of sites in the structure."""
-        return np.array([site.coords for site in self])
+        if len(self):
+            return np.array([site.coords for site in self])
+        return np.empty((0, 3), dtype=np.float64)
 
     @property
     def formula(self) -> str:
@@ -1078,7 +1080,7 @@ class IStructure(SiteCollection, MSONable):
 
         self._lattice = lattice if isinstance(lattice, Lattice) else Lattice(lattice)
 
-        sites = []
+        sites: list[PeriodicSite] = []
         for idx, specie in enumerate(species):
             prop = None
             if site_properties:
@@ -1623,7 +1625,9 @@ class IStructure(SiteCollection, MSONable):
     @property
     def frac_coords(self):
         """Fractional coordinates as a Nx3 numpy array."""
-        return np.array([site.frac_coords for site in self])
+        if len(self):
+            return np.array([site.frac_coords for site in self])
+        return np.empty((0, 3), dtype=np.float64)
 
     @property
     def volume(self) -> float:

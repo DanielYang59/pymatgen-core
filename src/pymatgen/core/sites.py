@@ -355,10 +355,17 @@ class PeriodicSite(Site, MSONable):
         frac_coords = lattice.get_fractional_coords(coords) if coords_are_cartesian else coords
 
         if to_unit_cell:
-            frac_coords = np.array([np.mod(f, 1) if p else f for p, f in zip(lattice.pbc, frac_coords, strict=True)])  # type: ignore[arg-type]
+            frac_coords = np.array(
+                [np.mod(f, 1) if p else f for p, f in zip(lattice.pbc, frac_coords, strict=True)], dtype=np.float64
+            )
+
+        frac_coords = np.asarray(frac_coords, dtype=np.float64)
 
         if not skip_checks:
-            frac_coords = np.array(frac_coords)
+            if frac_coords.shape != (3,):
+                raise ValueError(
+                    f"Coordinates {frac_coords} for species {species} are not xyz-shaped (shape {frac_coords.shape})."
+                )
             if not isinstance(species, Composition):
                 try:
                     species = Composition({get_el_sp(species): 1})  # type: ignore[arg-type]
@@ -370,7 +377,7 @@ class PeriodicSite(Site, MSONable):
                 raise ValueError("Species occupancies sum to more than 1!")
 
         self._lattice: Lattice = lattice
-        self._frac_coords: NDArray[np.float64] = np.asarray(frac_coords, dtype=np.float64)
+        self._frac_coords: NDArray[np.float64] = frac_coords
         self._species: Composition = cast("Composition", species)
         self._coords: NDArray[np.float64] | None = None
         self.properties: dict = properties or {}
@@ -411,7 +418,7 @@ class PeriodicSite(Site, MSONable):
 
     @lattice.setter
     def lattice(self, lattice: Lattice) -> None:
-        """Set Lattice associated with PeriodicSite."""
+        """Set Lattice associated with PeriodicSite. The old fractional coordinates remain."""
         self._lattice = lattice
         self._coords = self._lattice.get_cartesian_coords(self._frac_coords)
 
@@ -426,6 +433,8 @@ class PeriodicSite(Site, MSONable):
     def coords(self, coords: ArrayLike) -> None:
         """Set Cartesian coordinates."""
         self._coords = np.asarray(coords, dtype=np.float64)
+        if self._coords.shape != (3,):
+            raise ValueError(f"Cartesian coordinates {self._coords} are invalid - expected shape is (3,).")
         self._frac_coords = self._lattice.get_fractional_coords(self._coords)
 
     @property
@@ -437,6 +446,8 @@ class PeriodicSite(Site, MSONable):
     def frac_coords(self, frac_coords: ArrayLike) -> None:
         """Set fractional coordinates."""
         self._frac_coords = np.array(frac_coords, dtype=np.float64)
+        if self._frac_coords.shape != (3,):
+            raise ValueError(f"Fractional coordinates {self._frac_coords} are invalid - expected shape is (3,).")
         self._coords = self._lattice.get_cartesian_coords(self._frac_coords)
 
     @property

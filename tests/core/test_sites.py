@@ -279,6 +279,19 @@ class TestPeriodicSite(MatSciTest):
         assert str(self.propertied_site) == "[2.5 3.5 4.5] Fe2+"
         assert str(self.labeled_site) == "[2.5 3.5 4.5] Fe"
 
+    def test_invalid_coordinate(self):
+        """Test that non (3,)-shaped coordinate settings are blocked."""
+        with pytest.raises(ValueError, match="Coordinates"):
+            PeriodicSite("H", np.zeros((2,)), Lattice.cubic(1))
+
+        # Also block the setters from accepting false shapes
+        okay = PeriodicSite("H", np.zeros((3,)), Lattice.cubic(1))
+        with pytest.raises(ValueError, match="coordinates"):
+            okay.frac_coords = np.zeros((2,))
+        okay = PeriodicSite("H", np.zeros((3,)), Lattice.cubic(1))
+        with pytest.raises(ValueError, match="coordinates"):
+            okay.coords = np.zeros((2,))
+
 
 def get_distance_and_image_old(site1, site2, jimage=None):
     """

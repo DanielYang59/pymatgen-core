@@ -215,7 +215,7 @@ class Lattice(MSONable):
         """Get the Cartesian coordinates given fractional coordinates.
 
         Args:
-            fractional_coords (3x1 array): Fractional coords.
+            fractional_coords (3x1 or Nx3 array): Fractional coords.
 
         Returns:
             Cartesian coordinates
@@ -226,7 +226,7 @@ class Lattice(MSONable):
         """Get the fractional coordinates given Cartesian coordinates.
 
         Args:
-            cart_coords (3x1 array): Cartesian coords.
+            cart_coords (3x1 or Nx3 array): Cartesian coords.
 
         Returns:
             Fractional coordinates.
@@ -248,7 +248,7 @@ class Lattice(MSONable):
         class in `pymatgen.analysis.ferroelectricity.polarization`.
 
         Args:
-            cart_coords (3x1 array): Cartesian coords.
+            cart_coords (3x1 or Nx3 array): Cartesian coords.
 
         Returns:
             Lattice coordinates.
@@ -1619,8 +1619,10 @@ class Lattice(MSONable):
             2d array of Cartesian distances. E.g the distance between
             frac_coords1[i] and frac_coords2[j] is distances[i,j]
         """
-        _v, d2 = pbc_shortest_vectors(self, frac_coords1, frac_coords2, return_d2=True)
-        return np.sqrt(d2)
+        if len(frac_coords1) and len(frac_coords2):
+            _v, d2 = pbc_shortest_vectors(self, frac_coords1, frac_coords2, return_d2=True)
+            return np.sqrt(d2)
+        return np.empty((len(frac_coords1), len(frac_coords2)), dtype=np.float64)
 
     def is_hexagonal(
         self,
