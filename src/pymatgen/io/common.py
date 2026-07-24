@@ -32,6 +32,44 @@ if TYPE_CHECKING:
     from pymatgen.util.typing import PathLike
 
 
+class _VolumetricDataDict(dict):
+    """Dictionary that keeps deprecated volumetric-data component names readable."""
+
+    def __init__(self, *args, deprecated_keys: dict[str, str] | None = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._deprecated_keys = deprecated_keys or {}
+
+    def _resolve_key(self, key: str) -> str:
+        if replacement := self._deprecated_keys.get(key):
+            warnings.warn(
+                f"Volumetric data key {key!r} is deprecated; use {replacement!r} instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return replacement
+        return key
+
+    def __getitem__(self, key: str) -> NDArray:
+        return super().__getitem__(self._resolve_key(key))
+
+    def get(self, key: str, default=None):
+        return super().get(self._resolve_key(key), default)
+
+    def __contains__(self, key: object) -> bool:
+        if isinstance(key, str):
+            return super().__contains__(self._resolve_key(key))
+        return super().__contains__(key)
+
+    def __setitem__(self, key: str, value: NDArray) -> None:
+        super().__setitem__(self._resolve_key(key), value)
+
+    def __delitem__(self, key: str) -> None:
+        super().__delitem__(self._resolve_key(key))
+
+    def pop(self, key: str, default=None):
+        return super().pop(self._resolve_key(key), default)
+
+
 class VolumetricData(MSONable):
     """
     A representation of volumetric data commonly used in atomistic simulation outputs,
@@ -68,6 +106,7 @@ class VolumetricData(MSONable):
         data: dict[str, NDArray],
         distance_matrix: dict | None = None,
         data_aug: dict[str, NDArray] | None = None,
+        data_key: str | None = None,
     ) -> None:
         """
         Typically, this constructor is not used directly and the static
@@ -84,11 +123,14 @@ class VolumetricData(MSONable):
                 (typically augmentation charges)
         """
         self.structure = structure
-        self.is_spin_polarized: bool = len(data) >= 2
-        self.is_soc: bool = len(data) >= 4
         # convert data to numpy arrays in case they were jsanitized as lists
-        self.data: dict[str, NDArray] = {k: np.asarray(v) for k, v in data.items()}
-        self.dim = self.data["total"].shape
+        self.data: dict[str, NDArray] = _VolumetricDataDict({k: np.asarray(v) for k, v in data.items()})
+        self.data_key = data_key or ("total" if "total" in self.data else next(iter(self.data)))
+        if self.data_key not in self.data:
+            raise ValueError(f"Primary volumetric data key {self.data_key!r} is not present.")
+        self.is_spin_polarized = "spin_down" in self.data or "diff" in self.data
+        self.is_soc = {"diff_x", "diff_y", "diff_z"}.issubset(self.data)
+        self.dim = self.data[self.data_key].shape
         self.data_aug = data_aug or {}
         self.ngridpts = self.dim[0] * self.dim[1] * self.dim[2]
         # lazy init the spin data since this is not always needed.
@@ -99,7 +141,7 @@ class VolumetricData(MSONable):
         self.zpoints = np.linspace(0.0, 1.0, num=self.dim[2])
         self.interpolator = RegularGridInterpolator(
             (self.xpoints, self.ypoints, self.zpoints),
-            self.data["total"],
+            self.data[self.data_key],
             bounds_error=True,
         )
         self.name = "VolumetricData"
@@ -127,10 +169,15 @@ class VolumetricData(MSONable):
         non-spin-polarized run would have Spin.up data == Spin.down data.
         """
         if not self._spin_data:
-            spin_data = {}
-            spin_data[Spin.up] = 0.5 * (self.data["total"] + self.data.get("diff", 0))
-            spin_data[Spin.down] = 0.5 * (self.data["total"] - self.data.get("diff", 0))
-            self._spin_data = spin_data
+            if {"spin_up", "spin_down"}.issubset(self.data):
+                self._spin_data = {Spin.up: self.data["spin_up"], Spin.down: self.data["spin_down"]}
+            elif "total" in self.data:
+                self._spin_data = {
+                    Spin.up: 0.5 * (self.data["total"] + self.data.get("diff", 0)),
+                    Spin.down: 0.5 * (self.data["total"] - self.data.get("diff", 0)),
+                }
+            else:
+                raise ValueError("Volumetric data does not define spin channels.")
         return self._spin_data
 
     def get_axis_grid(self, ind: int) -> list[float]:
@@ -151,6 +198,7 @@ class VolumetricData(MSONable):
             {k: v.copy() for k, v in self.data.items()},
             distance_matrix=self._distance_matrix,
             data_aug=self.data_aug,
+            data_key=self.data_key,
         )
 
     def linear_add(self, other, scale_factor: float = 1.0) -> Self:
@@ -180,14 +228,16 @@ class VolumetricData(MSONable):
             data[k] = self.data[k] + scale_factor * other.data[k]
 
         new = deepcopy(self)
-        new.data = data
+        new.data = type(self.data)(data, deprecated_keys=getattr(self.data, "_deprecated_keys", None))
         new.data_aug = {}
+        new._spin_data = {}
         return new
 
     def scale(self, factor: float) -> None:
         """Scale the data in place by a factor."""
         for k in self.data:
             self.data[k] = np.multiply(self.data[k], factor)
+        self._spin_data = {}
 
     def value_at(self, x: float, y: float, z: float) -> float:
         """Get a data value from self.data at a given point (x, y, z) in terms
@@ -274,6 +324,8 @@ class VolumetricData(MSONable):
         inds = data[:, 1] <= radius
         dists = data[inds, 1]
         data_inds = np.rint(np.mod(list(data[inds, 0]), 1) * np.tile(a, (len(dists), 1))).astype(int)
+        if "diff" not in self.data:
+            raise ValueError("Integrated differences are only defined for total/difference volumetric data.")
         vals = [self.data["diff"][x, y, z] for x, y, z in data_inds]
 
         hist, edges = np.histogram(dists, bins=nbins, range=(0, radius), weights=vals)
@@ -293,7 +345,7 @@ class VolumetricData(MSONable):
         Returns:
             Average total along axis
         """
-        total_spin_dens = self.data["total"]
+        total_spin_dens = self.data[self.data_key]
         ng = self.dim
         if ind == 0:
             total = np.sum(np.sum(total_spin_dens, axis=1), 1)
@@ -387,7 +439,7 @@ class VolumetricData(MSONable):
                     f"{ang_to_bohr * site.coords[2]} \n"
                 )
 
-            for idx, dat in enumerate(self.data["total"].flatten(), start=1):
+            for idx, dat in enumerate(self.data[self.data_key].flatten(), start=1):
                 file.write(f"{' ' if dat > 0 else ''}{dat:.6e} ")
                 if idx % 6 == 0:
                     file.write("\n")
