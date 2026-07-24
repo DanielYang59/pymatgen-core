@@ -1488,6 +1488,11 @@ class TestOutcar:
                 first_one_only=True,
             )
 
+    def test_truncated_table_returns_without_hanging(self):
+        with pytest.warns(UserWarning, match="Table in .* is truncated"):
+            outcar = Outcar(f"{VASP_OUT_DIR}/OUTCAR.truncated.gz")
+        assert outcar.data["nplwvs_at_kpoints"] == []
+
 
 class TestBSVasprun(MatSciTest):
     def test_get_band_structure(self):
