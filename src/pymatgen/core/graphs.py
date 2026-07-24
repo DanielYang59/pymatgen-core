@@ -388,8 +388,8 @@ class StructureGraph(MSONable):
         # assumption simplifies logic later
         if not np.array_equal(from_jimage, (0, 0, 0)):
             shift = from_jimage
-            from_jimage = np.subtract(from_jimage, shift)
-            to_jimage = np.subtract(to_jimage, shift)
+            from_jimage = np.subtract(from_jimage, shift)  # type: ignore[assignment]
+            to_jimage = np.subtract(to_jimage, shift)  # type: ignore[assignment, arg-type]
 
         # automatic detection of to_jimage if user doesn't specify
         # will try and detect all equivalent images and add multiple
@@ -413,7 +413,7 @@ class StructureGraph(MSONable):
             )
             for nnsite in equiv_sites:
                 to_jimage = np.subtract(nnsite.frac_coords, self.structure[from_index].frac_coords)
-                to_jimage = np.round(to_jimage).astype(int)
+                to_jimage = np.round(to_jimage).astype(int)  # type: ignore[assignment]
                 self.add_edge(
                     from_index=from_index,
                     from_jimage=(0, 0, 0),
@@ -1665,7 +1665,7 @@ class MoleculeGraph(MSONable):
         return cls.from_empty_graph(*args, **kwargs)
 
     @classmethod
-    def from_edges(cls, molecule: Molecule, edges: dict[tuple[int, int], None | dict]) -> Self:
+    def from_edges(cls, molecule: Molecule, edges: dict[tuple[int, int], dict | None]) -> Self:
         """
         Constructor for MoleculeGraph, using pre-existing or pre-defined edges
         with optional edge parameters.

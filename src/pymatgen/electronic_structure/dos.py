@@ -237,7 +237,7 @@ class Dos(MSONable):
 
         return "\n".join(str_arr)
 
-    def get_densities(self, spin: Spin | None = None) -> None | NDArray:
+    def get_densities(self, spin: Spin | None = None) -> NDArray | None:
         """Get the DOS for a particular spin.
 
         Args:

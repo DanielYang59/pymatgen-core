@@ -59,7 +59,7 @@ class TestDftSet(MatSciTest):
         SETTINGS["PMG_CP2K_DATA_DIR"] = CP2K_TEST_DIR
 
         # Basis sets / potentials searching
-        basis_and_potential: dict[str, str | None | dict[str, str | None]] = {
+        basis_and_potential: dict[str, str | dict[str, str | None] | None] = {
             "basis_type": "SZV",
             "potential_type": "Pseudopotential",
             "functional": None,

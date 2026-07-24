@@ -708,7 +708,9 @@ class StructureMatcher(MSONable):
             copied_structures.append(ss)
         return copied_structures
 
-    def _preprocess(self, struct1, struct2, niggli=True, skip_structure_reduction: bool = False):
+    def _preprocess(
+        self, struct1, struct2, niggli=True, skip_structure_reduction: bool = False
+    ) -> tuple[Structure, Structure, int, bool]:
         """
         Rescales, finds the reduced structures (primitive and niggli),
         and finds fu, the supercell size to make struct1 comparable to
@@ -1016,7 +1018,7 @@ class StructureMatcher(MSONable):
         if niggli:
             reduced = reduced.get_reduced_structure(reduction_algo="niggli")
         if primitive_cell:
-            reduced = reduced.get_primitive_structure()
+            reduced = cast("SiteOrderedIStructure", reduced.get_primitive_structure())
         return reduced
 
     @classmethod

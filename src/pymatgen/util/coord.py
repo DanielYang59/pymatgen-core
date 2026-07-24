@@ -309,10 +309,10 @@ def lattice_points_in_supercell(supercell_matrix: ArrayLike) -> NDArray:
     all_points = ar[:, None, None] + br[None, :, None] + cr[None, None, :]
     all_points = all_points.reshape((-1, 3))
 
-    frac_points = np.dot(all_points, np.linalg.inv(supercell_matrix))
+    frac_points = np.dot(all_points, np.linalg.inv(np.asarray(supercell_matrix)))
 
     t_vecs = frac_points[np.all(frac_points < 1 - 1e-10, axis=1) & np.all(frac_points >= -1e-10, axis=1)]
-    if len(t_vecs) != round(abs(np.linalg.det(supercell_matrix))):
+    if len(t_vecs) != round(abs(np.linalg.det(np.asarray(supercell_matrix)))):
         raise ValueError("The number of transformed vectors mismatch.")
     return t_vecs
 

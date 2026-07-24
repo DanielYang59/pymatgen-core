@@ -25,7 +25,7 @@ from __future__ import annotations
 import warnings
 from functools import lru_cache
 from itertools import groupby
-from typing import TYPE_CHECKING
+from typing import cast
 
 import numpy as np
 import orjson
@@ -40,9 +40,6 @@ from pymatgen.core.composition import Composition, Element
 from pymatgen.util.coord import Simplex
 from pymatgen.util.due import Doi, due
 from pymatgen.util.string import htmlify
-
-if TYPE_CHECKING:
-    from pymatgen.core.entries import ComputedEntry
 
 with open(f"{PKG_DIR}/util/plotly_chempot_layouts.json", "rb") as file:
     plotly_layouts = orjson.loads(file.read())
@@ -173,7 +170,7 @@ class ChemicalPotentialDiagram(MSONable):
         if elements:
             elems = [Element(str(e)) for e in elements]
         else:
-            elems = self.elements.copy()
+            elems = cast("list[Element]", self.elements.copy())
             if self.dim > 3:
                 elems = elems[:3]  # default to first three elements
 
@@ -551,7 +548,7 @@ class ChemicalPotentialDiagram(MSONable):
         """Get a list of the minimum-energy entries at each composition and the
         entries corresponding to the elemental references.
         """
-        el_refs = {}
+        el_refs: dict[Element, PDEntry] = {}
         min_entries = []
 
         for formula, group in groupby(entries, key=lambda e: e.reduced_formula):
@@ -610,8 +607,8 @@ class ChemicalPotentialDiagram(MSONable):
         return lims
 
     @property
-    def entry_dict(self) -> dict[str, ComputedEntry]:
-        """Mapping between reduced formula and ComputedEntry."""
+    def entry_dict(self) -> dict[str, PDEntry]:
+        """Mapping between reduced formula and PDEntry."""
         return self._entry_dict
 
     @property

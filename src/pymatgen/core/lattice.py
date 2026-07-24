@@ -255,11 +255,11 @@ class Lattice(MSONable):
         """
         return self.get_fractional_coords(cart_coords) * self.lengths
 
-    def d_hkl(self, miller_index: tuple[int, ...]) -> float:
+    def d_hkl(self, miller_index: ArrayLike) -> float:
         """Get the distance between the hkl plane and the origin.
 
         Args:
-            miller_index (tuple[int, ...]): Miller index of plane
+            miller_index (ArrayLike): Miller index of plane
 
         Returns:
             float: distance between hkl plane and origin
@@ -1619,6 +1619,8 @@ class Lattice(MSONable):
             2d array of Cartesian distances. E.g the distance between
             frac_coords1[i] and frac_coords2[j] is distances[i,j]
         """
+        frac_coords1 = np.asarray(frac_coords1)
+        frac_coords2 = np.asarray(frac_coords2)
         if len(frac_coords1) and len(frac_coords2):
             _v, d2 = pbc_shortest_vectors(self, frac_coords1, frac_coords2, return_d2=True)
             return np.sqrt(d2)
@@ -1759,7 +1761,7 @@ class Lattice(MSONable):
 
 
 def get_integer_index(
-    miller_index: tuple[int, ...],
+    miller_index: ArrayLike,
     round_dp: int = 4,
     verbose: bool = True,
 ) -> tuple[int, ...]:
@@ -1865,15 +1867,15 @@ def get_points_in_spheres(
 
         # Temporarily hold the fractional coordinates
         image_offsets = lattice.get_fractional_coords(all_coords)
-        all_frac_coords = []
+        frac_coords_list = []
 
         # Only wrap periodic boundary
         for kk in range(3):
             if _pbc[kk]:
-                all_frac_coords.append(np.mod(image_offsets[:, kk : kk + 1], 1))
+                frac_coords_list.append(np.mod(image_offsets[:, kk : kk + 1], 1))
             else:
-                all_frac_coords.append(image_offsets[:, kk : kk + 1])
-        all_frac_coords = np.concatenate(all_frac_coords, axis=1)
+                frac_coords_list.append(image_offsets[:, kk : kk + 1])
+        all_frac_coords = np.concatenate(frac_coords_list, axis=1)
         image_offsets -= all_frac_coords
         coords_in_cell = np.dot(all_frac_coords, matrix)
 
@@ -1894,7 +1896,7 @@ def get_points_in_spheres(
                 valid_indices.extend([k for k in ind if valid_index_bool[k]])
         if not valid_coords:
             return [[]] * len(center_coords)
-        valid_coords = np.concatenate(valid_coords, axis=0)
+        valid_coords = np.concatenate(valid_coords, axis=0)  # type: ignore[assignment]
         valid_images = np.concatenate(valid_images, axis=0)  # type:ignore[assignment]
 
     else:

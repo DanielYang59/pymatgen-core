@@ -17,6 +17,9 @@ from pymatgen.io.vasp.inputs import Kpoints
 from pymatgen.io.vasp.outputs import Vasprun
 
 if TYPE_CHECKING:
+    from numpy import floating
+    from numpy.typing import NDArray
+
     from pymatgen.core.structure import IStructure
     from pymatgen.io.lobster.future.types import LobsterBandOverlaps, LobsterFatband
     from pymatgen.util.typing import PathLike
@@ -320,7 +323,7 @@ class Fatbands(MSONable):
 
         if structure is None:
             try:
-                self.structure = Structure.from_file(Path(directory, "POSCAR.lobster"))
+                self.structure: IStructure = Structure.from_file(Path(directory, "POSCAR.lobster"))
             except FileNotFoundError:
                 raise FileNotFoundError("No POSCAR.lobster file found in directory, structure has to be given")
         else:
@@ -466,8 +469,8 @@ class Fatband(LobsterFile):
         self.fatband: LobsterFatband = {
             "center": self.center,
             "orbital": self.orbital,
-            "energies": fatband["energies"],
-            "projections": fatband["projections"],
+            "energies": cast("dict[Spin, NDArray[floating]]", fatband["energies"]),
+            "projections": cast("dict[Spin, NDArray[floating]]", fatband["projections"]),
         }
 
         self.convert_to_numpy_arrays()

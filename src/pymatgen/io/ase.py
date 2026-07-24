@@ -48,7 +48,7 @@ __email__ = "shyuep@gmail.com"
 __date__ = "Mar 8, 2012"
 
 IMoleculeT = TypeVar("IMoleculeT", bound=IMolecule)
-StructOrMolT = TypeVar("StructOrMolT", bound=Structure | Molecule)
+StructOrMolT = TypeVar("StructOrMolT", bound=IStructure | IMolecule)
 
 
 class MSONAtoms(Atoms, MSONable):
@@ -269,12 +269,20 @@ class AseAtomsAdaptor:
 
         return atoms
 
+    @overload
+    @staticmethod
+    def get_structure(atoms: Atoms, cls: type[StructOrMolT], **cls_kwargs) -> StructOrMolT: ...
+
+    @overload
+    @staticmethod
+    def get_structure(atoms: Atoms, **cls_kwargs) -> Structure: ...
+
     @staticmethod
     def get_structure(
         atoms: Atoms,
-        cls: type[StructOrMolT] = Structure,
+        cls: type[SiteCollection] = Structure,
         **cls_kwargs,
-    ) -> StructOrMolT:
+    ) -> IStructure | IMolecule:
         """Get pymatgen structure from ASE Atoms.
 
         Args:
@@ -350,6 +358,7 @@ class AseAtomsAdaptor:
 
         # Return a (I)Molecule object if that was specifically requested;
         # otherwise return a (I)Structure object as expected
+        structure: IStructure | IMolecule
         if issubclass(cls, IMolecule):
             structure = cls(symbols, positions, properties=properties, **cls_kwargs)
 
@@ -424,8 +433,16 @@ class AseAtomsAdaptor:
 
         return structure
 
+    @overload
     @staticmethod
-    def get_molecule(atoms: Atoms, cls: type[IMoleculeT] = Molecule, **cls_kwargs) -> IMoleculeT:
+    def get_molecule(atoms: Atoms, cls: type[IMoleculeT], **cls_kwargs) -> IMoleculeT: ...
+
+    @overload
+    @staticmethod
+    def get_molecule(atoms: Atoms, **cls_kwargs) -> Molecule: ...
+
+    @staticmethod
+    def get_molecule(atoms: Atoms, cls: type[IMolecule] = Molecule, **cls_kwargs) -> IMolecule:
         """Get pymatgen molecule from ASE Atoms.
 
         Args:
@@ -451,4 +468,4 @@ class AseAtomsAdaptor:
 
         molecule.set_charge_and_spin(charge, spin_multiplicity=spin_mult)
 
-        return molecule  # type:ignore[return-value]
+        return molecule

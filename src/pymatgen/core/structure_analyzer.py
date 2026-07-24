@@ -469,7 +469,7 @@ class OxideType:
         dist_matrix = lattice.get_all_distances(o_sites_frac_coords, o_sites_frac_coords)
         np.fill_diagonal(dist_matrix, 1000)
         is_superoxide = is_peroxide = is_ozonide = False
-        bond_atoms = []
+        bond_atoms = np.array([], dtype=int)
         if np.any(dist_matrix < relative_cutoff * 1.35):
             bond_atoms = np.where(dist_matrix < relative_cutoff * 1.35)[0]
             is_superoxide = True

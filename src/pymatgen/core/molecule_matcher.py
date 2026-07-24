@@ -32,7 +32,7 @@ try:
 
     from pymatgen.io.babel import BabelMolAdaptor
 except ImportError:
-    openbabel = BabelMolAdaptor = None  # type: ignore[misc]
+    openbabel = BabelMolAdaptor = None  # type: ignore[misc, assignment]
 
 if TYPE_CHECKING:
     from typing import Self

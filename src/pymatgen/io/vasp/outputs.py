@@ -600,8 +600,8 @@ class Vasprun(MSONable):
                         # n_atoms is not the total number of atoms, only those for which force constants were calculated
                         # https://github.com/materialsproject/pymatgen/issues/3084
                         n_atoms = len(hessian) // 3
-                        hessian = np.asarray(hessian, dtype="double")
-                        self.force_constants = hessian.reshape(n_atoms, 3, n_atoms, 3).transpose(0, 2, 1, 3).copy()
+                        hessian_arr = np.asarray(hessian, dtype="double")
+                        self.force_constants = hessian_arr.reshape(n_atoms, 3, n_atoms, 3).transpose(0, 2, 1, 3).copy()
                         self.normalmode_eigenvals = np.array(eigenvalues)
                         self.normalmode_eigenvecs = np.array([np.array(ev).reshape(n_atoms, 3) for ev in eigenvectors])
 
@@ -2618,6 +2618,8 @@ class Outcar:
         if last_one_only and first_one_only:
             raise ValueError("last_one_only and first_one_only options are incompatible")
 
+        TableData: TypeAlias = list[list[Any] | dict[str, Any]]
+
         # Reuse the cached OUTCAR text if available.
         if (cached := getattr(self, "_text", None)) is not None:
             text: str = cached
@@ -2634,7 +2636,7 @@ class Outcar:
                     f"expected footer matching {footer_pattern!r}.",
                     stacklevel=2,
                 )
-            retained_data = []
+            retained_data: list[TableData] | TableData = []
             if attribute_name is not None:
                 self.data[attribute_name] = retained_data
             return retained_data
@@ -2643,7 +2645,6 @@ class Outcar:
         table_pattern = re.compile(table_pattern_text, re.MULTILINE | re.DOTALL)
         rp = re.compile(row_pattern)
 
-        TableData: TypeAlias = list[list[Any] | dict[str, Any]]
         tables: list[TableData] = []
         for mt in table_pattern.finditer(text):
             table_body_text = mt.group("table_body")
@@ -2662,7 +2663,7 @@ class Outcar:
             tables.append(table_contents)
             if first_one_only:
                 break
-        retained_data: list[TableData] | TableData = tables[-1] if last_one_only or first_one_only else tables
+        retained_data = tables[-1] if last_one_only or first_one_only else tables
         if attribute_name is not None:
             self.data[attribute_name] = retained_data
         return retained_data
@@ -3079,10 +3080,10 @@ class Outcar:
         self.er_bp: dict[Spin, NDArray[np.float64]] = {}  # array(3*float)
         self.er_ev_tot: NDArray | None = None  # array(3*float)
         self.er_bp_tot: NDArray | None = None  # array(3*float)
-        self.p_elec: int | None = None
-        self.p_ion: int | None = None
+        self.p_elec: NDArray | None = None
+        self.p_ion: NDArray | None = None
         try:
-            search = []
+            search: list[list] = []
 
             # Non-spin cases
             def er_ev(results: Outcar, match: re.Match[str]) -> None:
@@ -3156,7 +3157,7 @@ class Outcar:
             )
             search.append([ionic_dipole_moment_pattern, None, p_ion])
 
-            self.context = None
+            self.context: int | Spin | None = None
             self.er_ev = {Spin.up: None, Spin.down: None}  # type:ignore[dict-item]
             self.er_bp = {Spin.up: None, Spin.down: None}  # type:ignore[dict-item]
 
@@ -3226,7 +3227,7 @@ class Outcar:
             piezo_tensor (list[list[float]]): The piezo tensor.
         """
         try:
-            search = []
+            search: list[list] = []
 
             def dielectric_section_start(results: Outcar, match: re.Match[str]) -> None:
                 results.dielectric_index = -1
@@ -3279,7 +3280,7 @@ class Outcar:
                 ]
             )
 
-            self.dielectric_index = None
+            self.dielectric_index: int | None = None
             self.dielectric_tensor = np.zeros((3, 3))
 
             def piezo_section_start(results: Outcar, _match: re.Match[str]) -> None:
@@ -3317,7 +3318,7 @@ class Outcar:
                 ]
             )
 
-            self.piezo_index = None
+            self.piezo_index: int | None = None
             self.piezo_tensor = np.zeros((3, 6))
 
             def born_section_start(results: Outcar, _match: re.Match[str]) -> None:
@@ -3359,7 +3360,7 @@ class Outcar:
                 ]
             )
 
-            self.born_ion = None
+            self.born_ion: int | None = None
             self.born: list | NDArray = []
 
             micro_pyawk(self.filename, search, self)  # type:ignore[arg-type]
@@ -3380,7 +3381,7 @@ class Outcar:
             piezo_ionic_tensor (list[list[float]]): Ionic piezoelectric tensor.
         """
         try:
-            search = []
+            search: list[list] = []
 
             def dielectric_section_start(results: Outcar, _match: re.Match[str]) -> None:
                 results.dielectric_ionic_index = -1
@@ -3441,7 +3442,7 @@ class Outcar:
                 ]
             )
 
-            self.dielectric_ionic_index = None
+            self.dielectric_ionic_index: int | None = None
             self.dielectric_ionic_tensor = np.zeros((3, 3))
 
             def piezo_section_start(results: Outcar, _match: re.Match[str]) -> None:
@@ -3489,7 +3490,7 @@ class Outcar:
                 ]
             )
 
-            self.piezo_ionic_index = None
+            self.piezo_ionic_index: int | None = None
             self.piezo_ionic_tensor = np.zeros((3, 6))
 
             micro_pyawk(self.filename, search, self)  # type:ignore[arg-type]
@@ -3511,11 +3512,11 @@ class Outcar:
         """
         self.p_elec = None
         self.p_ion = None
-        self.p_sp1: int | None = None
-        self.p_sp2: int | None = None
+        self.p_sp1: NDArray | None = None
+        self.p_sp2: NDArray | None = None
 
         try:
-            search = []
+            search: list[list] = []
 
             # Always present spin/non-spin
             def p_elec(results: Outcar, match: re.Match[str]) -> None:
@@ -3600,11 +3601,11 @@ class Outcar:
             results = micro_pyawk(self.filename, search, [])  # type:ignore[arg-type]
 
             if "|e|" in results[0]:
-                self.p_elec *= -1  # type: ignore[operator]
-                self.p_ion *= -1  # type: ignore[operator]
+                self.p_elec *= -1  # type: ignore[operator, assignment]
+                self.p_ion *= -1  # type: ignore[operator, assignment]
                 if self.spin and not self.noncollinear:
-                    self.p_sp1 *= -1  # type: ignore[operator]
-                    self.p_sp2 *= -1  # type: ignore[operator]
+                    self.p_sp1 *= -1  # type: ignore[operator, assignment]
+                    self.p_sp2 *= -1  # type: ignore[operator, assignment]
 
         except Exception as exc:
             raise RuntimeError("LCALCPOL OUTCAR could not be parsed.") from exc
@@ -3998,7 +3999,7 @@ class VolumetricData(BaseVolumetricData):
             if self.data_aug is None:
                 return
 
-            aug_data = self.data_aug.get(data_type, {})
+            aug_data: Any = self.data_aug.get(data_type, {})
 
             if isinstance(aug_data, (list, tuple)):
                 for line in aug_data:
@@ -7304,7 +7305,7 @@ class Vaspout(Vasprun):
                 self.actual_kpoints_weights,
             ) = self._parse_kpoints(input_data["kpoints"])  # type: ignore[assignment]
 
-        self.kpoints_opt_props: None | KpointOptProps = None
+        self.kpoints_opt_props: KpointOptProps | None = None
         if input_data.get("kpoints_opt"):
             self.kpoints_opt_props = KpointOptProps()
             (

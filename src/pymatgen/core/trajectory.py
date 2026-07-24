@@ -776,7 +776,7 @@ class Trajectory(MSONable):
         adaptor = AseAtomsAdaptor()
 
         structures: list[Structure] = []
-        frame_properties = []
+        frame_properties: list[dict] = []
         converter = adaptor.get_structure if (is_pbc := any(trajectory[0].pbc)) else adaptor.get_molecule
 
         for atoms in trajectory:

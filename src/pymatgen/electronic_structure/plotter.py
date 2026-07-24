@@ -2612,7 +2612,7 @@ class BSDOSPlotter:
         blue = [0.5 * (blue[i] + blue[i + 1]) for i in range(n_seg)]
         alpha = np.ones(n_seg, float) * alpha
         lc = LineCollection(
-            seg,
+            list(seg),
             colors=list(zip(red, green, blue, alpha, strict=True)),
             linewidth=2,
             linestyles=linestyles,

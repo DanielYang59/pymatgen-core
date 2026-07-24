@@ -147,7 +147,7 @@ class Entry(MSONable, ABC):
         new_entry_dict["composition"] = new_composition.as_dict()
         new_entry_dict["energy"] = new_energy
 
-        return self.from_dict(new_entry_dict)
+        return cast("Entry", self.from_dict(new_entry_dict))
 
     def _normalization_factor(self, mode: Literal["formula_unit", "atom"] = "formula_unit") -> float:
         # NOTE here we use composition rather than _composition in order to ensure

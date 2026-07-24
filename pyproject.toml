@@ -166,6 +166,7 @@ ignore = [
     "SLF", # Access "private" class members
     "T20", # Check for print/pprint
     "TD", # TODO tags related
+    "CPY001", # Copyright warning.
 
     # Single rules
     "B023", # Function definition does not bind loop variable

@@ -2350,7 +2350,7 @@ class GrainBoundaryGenerator:
         Returns:
             the surface miller index of the input vector.
         """
-        miller: list[None | int] = [None] * 3
+        miller: list[int | None] = [None] * 3
         index = []
         for idx, value in enumerate(vec):
             if abs(value) < 1e-8:
@@ -2413,7 +2413,7 @@ def fix_pbc(structure: Structure, matrix: NDArray = None) -> Structure:
     return Structure(latte, spec, coords, site_properties=structure.site_properties)
 
 
-def symm_group_cubic(mat: NDArray) -> list:
+def symm_group_cubic(mat: NDArray) -> NDArray:
     """Obtain cubic symmetric equivalents of the list of vectors.
 
     Args:

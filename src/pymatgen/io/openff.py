@@ -220,7 +220,7 @@ def assign_partial_charges(
     openff_mol: tk.Molecule,
     atom_map: dict[int, int],
     charge_method: str,
-    partial_charges: None | list[float],
+    partial_charges: list[float] | None,
 ) -> tk.Molecule:
     """
     Assign partial charges to an OpenFF Molecule.

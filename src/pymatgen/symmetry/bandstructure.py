@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 import warnings
+from typing import Any
 
 import networkx as nx
 import numpy as np
@@ -322,7 +323,7 @@ class HighSymmKpath(KPathBase):
         new_kpoints = []
         new_bands = {spin: [np.array([]) for _ in range(bandstructure.nb_bands)] for spin in spins}
 
-        new_projections: dict[Spin, list[list[float]]] = {}
+        new_projections: dict[Spin, Any] = {}
         if has_projections := isinstance(bandstructure.projections, dict) and all(
             spin in bandstructure.projections for spin in spins
         ):
@@ -388,7 +389,7 @@ class HighSymmKpath(KPathBase):
             eigenvals=new_bands,
             lattice=bandstructure.lattice_rec,
             efermi=bandstructure.efermi,
-            labels_dict=new_labels_dict,
+            labels_dict=new_labels_dict,  # type: ignore[arg-type]
             structure=bandstructure.structure,
             projections=new_projections or {},
         )

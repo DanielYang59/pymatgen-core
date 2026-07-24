@@ -25,7 +25,7 @@ import re
 import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from string import Template
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 from monty.io import zopen
@@ -125,7 +125,7 @@ class NwTask(MSONable):
     def __init__(
         self,
         charge: float,
-        spin_multiplicity: int,
+        spin_multiplicity: float,
         basis_set: dict[str, str],
         basis_set_option: Literal["cartesian", "spherical"] = "cartesian",
         title: str | None = None,
@@ -267,7 +267,7 @@ $theory_spec
         mol: Molecule,
         theory: NwTaskTheory,
         charge: float | None = None,
-        spin_multiplicity: int | None = None,
+        spin_multiplicity: float | None = None,
         basis_set: dict[str, str] | str = "6-31g",
         basis_set_option: Literal["cartesian", "spherical"] = "cartesian",
         title: str | None = None,
@@ -346,7 +346,7 @@ $theory_spec
             kwargs: Any of the other kwargs supported by NwTask. Note the
                 theory is always "dft" for a dft task.
         """
-        task = NwTask.from_molecule(mol, theory="dft", **kwargs)
+        task = cls.from_molecule(mol, theory="dft", **kwargs)
         task.theory_directives |= {"xc": xc, "mult": task.spin_multiplicity}
         return task
 
@@ -361,7 +361,7 @@ $theory_spec
             kwargs: Any of the other kwargs supported by NwTask. Note the
                 theory is always "dft" for a dft task.
         """
-        return NwTask.from_molecule(mol, theory="esp", **kwargs)
+        return cls.from_molecule(mol, theory="esp", **kwargs)
 
 
 class NwInput(MSONable):
@@ -374,7 +374,7 @@ class NwInput(MSONable):
         self,
         mol: Molecule,
         tasks: list[NwTask],
-        directives: list[tuple[str, ...]] | None = None,
+        directives: Sequence[Sequence[str]] | None = None,
         geometry_options: Sequence[str] = ("units", "angstroms"),
         symmetry_options: Sequence[str] | None = None,
         memory_options: str | None = None,
@@ -473,13 +473,18 @@ class NwInput(MSONable):
         Returns:
             NwInput object
         """
-        directives = []
+        directives: list[list[str]] = []
         tasks = []
-        charge = spin_multiplicity = title = basis_set = None
-        basis_set_option = None
-        mol = None
+        charge: float | None = None
+        spin_multiplicity: float | None = None
+        title: str | None = None
+        basis_set: dict[str, str] | None = None
+        basis_set_option: str | None = None
+        mol: Molecule | None = None
         theory_directives: dict[str, dict[str, str]] = {}
-        geom_options = symmetry_options = memory_options = None
+        geom_options: list[str] | None = None
+        symmetry_options: list[str] | None = None
+        memory_options: str | None = None
 
         lines = string_input.strip().split("\n")
         while len(lines) > 0:
@@ -552,13 +557,13 @@ class NwInput(MSONable):
             elif tokens[0].lower() == "task":
                 tasks.append(
                     NwTask(
-                        charge=charge,
-                        spin_multiplicity=spin_multiplicity,
+                        charge=cast("float", charge),
+                        spin_multiplicity=cast("float", spin_multiplicity),
                         title=title,
-                        theory=tokens[1],
-                        operation=tokens[2],
-                        basis_set=basis_set,
-                        basis_set_option=basis_set_option,
+                        theory=cast("NwTaskTheory", tokens[1]),
+                        operation=cast("NwTaskOperation", tokens[2]),
+                        basis_set=cast("dict[str, str]", basis_set),
+                        basis_set_option=cast("Literal['cartesian', 'spherical']", basis_set_option),
                         theory_directives=theory_directives.get(tokens[1]),
                     )
                 )
@@ -570,10 +575,10 @@ class NwInput(MSONable):
                 directives.append(line.strip().split())
 
         return cls(
-            mol,
+            cast("Molecule", mol),
             tasks=tasks,
             directives=directives,
-            geometry_options=geom_options,
+            geometry_options=cast("Sequence[str]", geom_options),
             symmetry_options=symmetry_options,
             memory_options=memory_options,
         )
@@ -652,7 +657,7 @@ class NwOutput:
 
         lines = self.raw.split("\n")
 
-        roots = {"singlet": [], "triplet": []}
+        roots: dict[str, list] = {"singlet": [], "triplet": []}
 
         while lines:
             line = lines.pop(0).strip()
@@ -767,30 +772,32 @@ class NwOutput:
 
         parse_hess = False
         parse_proj_hess = False
-        hessian = projected_hessian = None
+        hessian: list | None = None
+        projected_hessian: list | None = None
         parse_force = False
         all_forces = []
-        forces = []
+        forces: list = []
 
-        data = {}
+        data: dict[str, Any] = {}
         energies = []
-        frequencies = normal_frequencies = None
+        frequencies: list | None = None
+        normal_frequencies: list | None = None
         corrections = {}
         molecules = []
         structures = []
-        species = []
-        coords = []
-        lattice = []
+        species: list = []
+        coords: list = []
+        lattice: list = []
         errors = []
         basis_set = {}
-        bset_header = []
+        bset_header: list = []
         parse_geom = False
         parse_freq = False
         parse_bset = False
         parse_projected_freq = False
         job_type = ""
         parse_time = False
-        time = 0
+        time: str | int = 0
 
         for line in output.split("\n"):
             for e, v in error_defs.items():
@@ -862,7 +869,7 @@ class NwOutput:
             elif parse_hess:
                 if line.strip() == "":
                     continue
-                if len(hessian) > 0 and line.find("----------") != -1:
+                if len(cast("list", hessian)) > 0 and line.find("----------") != -1:
                     parse_hess = False
                     continue
                 tokens = line.strip().split()
@@ -874,7 +881,7 @@ class NwOutput:
                     if isfloatstring(tokens[1]):
                         continue
                     vals = [float(fort2py(x)) for x in tokens[1:]]
-                    if len(hessian) < row:
+                    if len(cast("list", hessian)) < row:
                         hessian.append(vals)
                     else:
                         hessian[row - 1].extend(vals)
@@ -882,7 +889,7 @@ class NwOutput:
             elif parse_proj_hess:
                 if line.strip() == "":
                     continue
-                nat3 = len(hessian)
+                nat3 = len(cast("list", hessian))
                 tokens = line.strip().split()
                 if len(tokens) > 1:
                     try:
@@ -892,7 +899,7 @@ class NwOutput:
                     if isfloatstring(tokens[1]):
                         continue
                     vals = [float(fort2py(x)) for x in tokens[1:]]
-                    if len(projected_hessian) < row:
+                    if len(cast("list", projected_hessian)) < row:
                         projected_hessian.append(vals)
                     else:
                         projected_hessian[row - 1].extend(vals)
@@ -901,7 +908,7 @@ class NwOutput:
 
             else:
                 if match := energy_patt.search(line):
-                    energies.append(Energy(match[1], "Ha").to("eV"))
+                    energies.append(Energy(float(match[1]), "Ha").to("eV"))
                     parse_time = True
                     continue
 
@@ -909,12 +916,13 @@ class NwOutput:
                     cosmo_scf_energy = energies[-1]
                     energies[-1] = {}
                     energies[-1]["cosmo scf"] = cosmo_scf_energy
-                    energies[-1] |= {"gas phase": Energy(match[1], "Ha").to("eV")}
+                    energies[-1] |= {"gas phase": Energy(float(match[1]), "Ha").to("eV")}
 
                 if match := energy_sol_patt.search(line):
-                    energies[-1] |= {"sol phase": Energy(match[1], "Ha").to("eV")}
+                    energies[-1] |= {"sol phase": Energy(float(match[1]), "Ha").to("eV")}
 
                 if match := preamble_patt.search(line):
+                    val: int | str
                     try:
                         val = int(match[2])
                     except ValueError:
@@ -957,7 +965,7 @@ class NwOutput:
                     if job_type == "NWChem DFT Module" and "COSMO solvation results" in output:
                         job_type += " COSMO"
                 elif match := corrections_patt.search(line):
-                    corrections[match[1]] = FloatWithUnit(match[2], "kJ mol^-1").to("eV atom^-1")
+                    corrections[match[1]] = FloatWithUnit(float(match[2]), "kJ mol^-1").to("eV atom^-1")
 
         if frequencies:
             for _freq, mode in frequencies:

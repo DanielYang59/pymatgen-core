@@ -330,10 +330,10 @@ class COXXCAR(LobsterInteractionsHolder):
                     ]
                 )
 
-        real_indices = np.array(real_indices, dtype=int)
-        real_indices = np.intersect1d(real_indices, index_range)
+        indices_arr = np.array(real_indices, dtype=int)
+        indices_arr = np.intersect1d(indices_arr, index_range)
 
-        return sorted(real_indices.tolist())
+        return sorted(indices_arr.tolist())
 
 
 class COBICAR(COXXCAR):

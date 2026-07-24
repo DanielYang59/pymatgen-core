@@ -58,14 +58,14 @@ class LobsterBandOverlaps(TypedDict):
     """Dictionary representing band overlaps in LOBSTER.
 
     Attributes:
-        k_points (dict[Spin, list[list[float]]]): List of k-points for each spin.
-        matrices (dict[Spin, list[NDArray[floating]]]): List of matrices for each spin.
-        max_deviations (dict[Spin, list[float]]): List of maximal deviations for each spin.
+        k_points (dict[Spin, NDArray[floating]]): Array of k-points for each spin.
+        matrices (dict[Spin, NDArray[floating]]): Array of overlap matrices for each spin.
+        max_deviations (dict[Spin, NDArray[floating]]): Array of maximal deviations for each spin.
     """
 
-    k_points: dict[Spin, list[list[float]]]
-    matrices: dict[Spin, list[NDArray[floating]]]
-    max_deviations: dict[Spin, list[float]]
+    k_points: dict[Spin, NDArray[floating]]
+    matrices: dict[Spin, NDArray[floating]]
+    max_deviations: dict[Spin, NDArray[floating]]
 
 
 class LobsterFatband(TypedDict):

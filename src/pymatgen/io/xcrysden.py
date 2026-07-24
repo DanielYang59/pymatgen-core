@@ -588,16 +588,17 @@ class XSF:
                     atom_species.append(symbol.decode("utf-8"))
                     atom_coords.append([float(x), float(y), float(z)])
                     atom_forces.append([float(f) for f in force])
-                atom_coords = np.asarray(atom_coords)
+                coords_arr = np.asarray(atom_coords)
+                forces_arr: np.ndarray | None
                 if not atom_forces or len(atom_forces[0]) == 0:
-                    atom_forces = None
+                    forces_arr = None
                 elif any(len(force) != 3 for force in atom_forces):
                     raise ValueError("Each ATOMS row must have 3 coordinate fields followed by optional force fields")
                 else:
-                    atom_forces = np.asarray(atom_forces)
+                    forces_arr = np.asarray(atom_forces)
 
-                xsf.structure = Molecule(atom_species, atom_coords)
-                xsf.forces = atom_forces
+                xsf.structure = Molecule(atom_species, coords_arr)
+                xsf.forces = forces_arr
                 continue
 
             if keyword == b"CONVCOORD":

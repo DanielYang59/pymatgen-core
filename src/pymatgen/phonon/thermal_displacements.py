@@ -68,7 +68,7 @@ class ThermalDisplacementMatrices(MSONable):
         self.structure = structure
         self.temperature = temperature
         if thermal_displacement_matrix_cif is not None:
-            self.thermal_displacement_matrix_cif: None | NDArray = np.asarray(thermal_displacement_matrix_cif)
+            self.thermal_displacement_matrix_cif: NDArray | None = np.asarray(thermal_displacement_matrix_cif)
         else:
             self.thermal_displacement_matrix_cif = None
 

@@ -137,7 +137,7 @@ class Neighbor(Site):
         Returns:
             Neighbor
         """
-        return super(Site, cls).from_dict(dct)
+        return cast("Site", super(Site, cls).from_dict(dct))
 
 
 class PeriodicNeighbor(PeriodicSite):
@@ -209,7 +209,7 @@ class PeriodicNeighbor(PeriodicSite):
         Returns:
             PeriodicNeighbor
         """
-        return super(Site, cls).from_dict(dct)
+        return cast("Self", super(Site, cls).from_dict(dct))
 
 
 class SiteCollection(collections.abc.Sequence, ABC):

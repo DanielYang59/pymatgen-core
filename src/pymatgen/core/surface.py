@@ -163,7 +163,7 @@ class Slab(Structure):
                 ouc_lattice.gamma,
             )
 
-            self.oriented_unit_cell = Structure(
+            self.oriented_unit_cell: Structure | IStructure = Structure(
                 ouc_lattice,
                 oriented_unit_cell.species_and_occu,
                 oriented_unit_cell.frac_coords,

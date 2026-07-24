@@ -218,7 +218,7 @@ class PhononDosPlotter:
             else:
                 xs, ys = frequencies, densities
             if self.stack:
-                ax.fill(xs, ys, color=color, label=str(key), **kwargs)
+                ax.fill(xs, ys, color=color, label=str(key), **kwargs)  # type: ignore[arg-type]
             else:
                 ax.plot(xs, ys, color=color, label=str(key), linewidth=linewidth, **kwargs)  # type:ignore[arg-type]
 
@@ -463,9 +463,9 @@ class PhononBSPlotter:
     def get_proj_plot(
         self,
         site_comb: str | list[list[int]] = "element",
-        ylim: tuple[None | float, None | float] | None = None,
+        ylim: tuple[float | None, float | None] | None = None,
         units: Literal["thz", "ev", "mev", "ha", "cm-1", "cm^-1"] = "thz",
-        rgb_labels: tuple[None | str] | None = None,
+        rgb_labels: tuple[str | None] | None = None,
     ) -> Axes:
         """Get a matplotlib object for the bandstructure plot projected along atomic
         sites.
@@ -595,7 +595,7 @@ class PhononBSPlotter:
     def show_proj(
         self,
         site_comb: str | list[list[int]] = "element",
-        ylim: tuple[None | float, None | float] | None = None,
+        ylim: tuple[float | None, float | None] | None = None,
         units: Literal["thz", "ev", "mev", "ha", "cm-1", "cm^-1"] = "thz",
         rgb_labels: tuple[str] | None = None,
     ) -> None:

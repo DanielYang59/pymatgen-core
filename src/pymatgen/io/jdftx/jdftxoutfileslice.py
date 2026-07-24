@@ -307,7 +307,7 @@ class JDFTXOutfileSlice:
     vibrational_modes: list[dict[str, Any]] | None = None
     vibrational_energy_components: dict[str, float] | None = None
 
-    def _get_mu(self) -> None | float:
+    def _get_mu(self) -> float | None:
         """Sets mu from most recent JOutStructure. (Equivalent to efermi)"""
         _mu = None
         if self.jstrucs is not None:

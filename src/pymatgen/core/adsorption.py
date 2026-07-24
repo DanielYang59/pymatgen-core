@@ -160,7 +160,7 @@ class AdsorbateSiteFinder:
         new_slab = this_slab.copy(site_properties=new_site_properties)
         return cls(new_slab, selective_dynamics)
 
-    def find_surface_sites_by_height(self, slab: Slab, height=0.9, xy_tol=0.05):
+    def find_surface_sites_by_height(self, slab: Slab | Structure, height=0.9, xy_tol=0.05):
         """Find surface sites by determining which sites are
         within a threshold value in height from the topmost site in a list of
         sites.
@@ -198,7 +198,7 @@ class AdsorbateSiteFinder:
 
         return surf_sites
 
-    def assign_site_properties(self, slab: Slab, height=0.9):
+    def assign_site_properties(self, slab: Slab | Structure, height=0.9):
         """Assign site properties."""
         if "surface_properties" in slab.site_properties:
             return slab
@@ -605,7 +605,7 @@ def get_mi_vec(slab):
     return mvec / np.linalg.norm(mvec)
 
 
-def get_rot(slab: Slab) -> SymmOp:
+def get_rot(slab: Slab | Structure) -> SymmOp:
     """Get the transformation to rotate the z axis into the miller index."""
     new_z = get_mi_vec(slab)
     a, _b, _c = slab.lattice.matrix
@@ -675,8 +675,8 @@ def plot_slab(
     sites = sorted(slab.sites, key=lambda x: x.coords[2])
     alphas = 1 - decay * (np.max(coords[:, 2]) - coords[:, 2])
     alphas = alphas.clip(min=0)
-    corner = [0, 0, slab.lattice.get_fractional_coords(coords[-1])[-1]]
-    corner = slab.lattice.get_cartesian_coords(corner)[:2]
+    corner_frac = [0, 0, slab.lattice.get_fractional_coords(coords[-1])[-1]]
+    corner = slab.lattice.get_cartesian_coords(corner_frac)[:2]
     vertices = orig_cell[:2, :2]
     lattice_sum = vertices[0] + vertices[1]
     # inverse coords, sites, alphas, to show other side of slab
@@ -728,12 +728,12 @@ def plot_slab(
         )
     # Draw unit cell
     if draw_unit_cell:
-        vertices = np.insert(vertices, 1, lattice_sum, axis=0).tolist()
-        vertices += [[0.0, 0.0]]
-        vertices = [[0.0, 0.0], *vertices]
+        cell_vertices = np.insert(vertices, 1, lattice_sum, axis=0).tolist()
+        cell_vertices += [[0.0, 0.0]]
+        cell_vertices = [[0.0, 0.0], *cell_vertices]
         codes = [Path.MOVETO, Path.LINETO, Path.LINETO, Path.LINETO, Path.CLOSEPOLY]
-        vertices = [(np.array(vert) + corner).tolist() for vert in vertices]
-        path = Path(vertices, codes)
+        cell_vertices = [(np.array(vert) + corner).tolist() for vert in cell_vertices]
+        path = Path(cell_vertices, codes)
         patch = patches.PathPatch(path, facecolor="none", lw=2, alpha=0.5, zorder=2 * len(coords) + 2)
         ax.add_patch(patch)
     ax.set_aspect("equal")

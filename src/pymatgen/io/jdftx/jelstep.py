@@ -524,7 +524,7 @@ def _gather_JElSteps_line_collections(opt_type: str, text_slice: list[str]) -> t
     return line_collections, lines_collect
 
 
-def _parse_ending_lines(ending_lines: list[str], opt_type: str) -> tuple[None | bool, None | str]:
+def _parse_ending_lines(ending_lines: list[str], opt_type: str) -> tuple[bool | None, str | None]:
     """Parse ending lines.
 
     Parses the ending lines of text from a JDFTx out file corresponding to
@@ -559,7 +559,7 @@ def _is_converged_line(i: int, line_text: str, opt_type: str) -> bool:
     return f"{opt_type}: Converged" in line_text
 
 
-def _read_converged_line(line_text: str) -> tuple[None | bool, None | str]:
+def _read_converged_line(line_text: str) -> tuple[bool | None, str | None]:
     """Set class variables converged and converged_reason.
 
     Args:

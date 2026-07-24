@@ -9,7 +9,7 @@ from __future__ import annotations
 import itertools
 import math
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import sympy as sp
@@ -226,7 +226,7 @@ class ElasticTensor(NthOrderElasticTensor):
             m (3-d vector): secondary direction orthogonal to n
             tol (float): tolerance for testing of orthogonality
         """
-        n, m = get_uvec(n), get_uvec(m)
+        n, m = get_uvec(np.asarray(n, dtype=float)), get_uvec(np.asarray(m, dtype=float))
         if np.abs(np.dot(n, m)) >= tol:
             raise ValueError("n and m must be orthogonal")
         v = self.compliance_tensor.einsum_sequence([n] * 2 + [m] * 2)
@@ -236,7 +236,7 @@ class ElasticTensor(NthOrderElasticTensor):
     def directional_elastic_mod(self, n) -> float:
         """Calculate directional elastic modulus for a specific vector."""
         n = get_uvec(n)
-        return self.einsum_sequence([n] * 4)
+        return cast("float", self.einsum_sequence([n] * 4))
 
     @raise_if_unphysical
     def trans_v(self, structure: Structure) -> float:
@@ -418,7 +418,7 @@ class ElasticTensor(NthOrderElasticTensor):
 
     def green_kristoffel(self, u) -> float:
         """Get the Green-Kristoffel tensor for a second-order tensor."""
-        return self.einsum_sequence([u, u], "ijkl,i,l")
+        return cast("float", self.einsum_sequence([u, u], "ijkl,i,l"))
 
     @property
     def property_dict(self):
@@ -640,8 +640,8 @@ class ElasticTensorExpansion(TensorCollection):
         num, denom, c = np.zeros((3, 3)), 0, 1
         for p, w in zip(points, weights, strict=True):
             gk = ElasticTensor(self[0]).green_kristoffel(p)
-            _rho_wsquareds, us = np.linalg.eigh(gk)
-            us = [u / np.linalg.norm(u) for u in np.transpose(us)]
+            _rho_wsquareds, eig_vecs = np.linalg.eigh(gk)
+            us = [u / np.linalg.norm(u) for u in np.transpose(eig_vecs)]
             for u in us:
                 # TODO: this should be benchmarked
                 if temperature and structure:

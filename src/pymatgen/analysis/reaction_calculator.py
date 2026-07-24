@@ -228,7 +228,7 @@ class BalancedReaction(MSONable):
             r_coeffs[idx] = amt * factor
             r_formulas.append(formula)
         if reduce:
-            factor = 1 / gcd_float(np.abs(r_coeffs))
+            factor = 1 / gcd_float(np.abs(r_coeffs).tolist())
             r_coeffs *= factor
         else:
             factor = 1
@@ -269,7 +269,7 @@ class BalancedReaction(MSONable):
         return cls(reactants, products)
 
     @classmethod
-    def from_str(cls, rxn_str: str) -> Self:
+    def from_str(cls, rxn_str: str) -> BalancedReaction:
         """Generate a balanced reaction from a string. The reaction must
         already be balanced.
 
@@ -373,7 +373,7 @@ class Reaction(BalancedReaction):
 
         return np.squeeze(best_soln)
 
-    def copy(self) -> Self:
+    def copy(self) -> Reaction:
         """Get a copy of the Reaction object."""
         return Reaction(self.reactants, self.products)
 

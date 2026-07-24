@@ -1290,7 +1290,7 @@ class PointGroupAnalyzer:
                 return idx
         return 1
 
-    def _check_perpendicular_r2_axis(self, axis: NDArray) -> None | Literal[True]:
+    def _check_perpendicular_r2_axis(self, axis: NDArray) -> Literal[True] | None:
         """Check for R2 axes perpendicular to unique axis.
 
         For handling symmetric top molecules.
