@@ -23,8 +23,9 @@ from __future__ import annotations
 import os
 import re
 import warnings
+from collections.abc import Iterator, Mapping, Sequence
 from string import Template
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from monty.io import zopen
@@ -34,18 +35,58 @@ from pymatgen.core.structure import Molecule, Structure
 from pymatgen.core.units import Energy, FloatWithUnit
 
 if TYPE_CHECKING:
-    from pathlib import Path
-    from typing import ClassVar, Self
+    from typing import Any, ClassVar, Self, TypeAlias
 
-NWCHEM_BASIS_LIBRARY = None
+    from pymatgen.analysis.excitation import ExcitationSpectrum
+    from pymatgen.util.typing import PathLike
+
+NWCHEM_BASIS_LIBRARY: set | None = None
 if os.getenv("NWCHEM_BASIS_LIBRARY"):
     NWCHEM_BASIS_LIBRARY = set(os.listdir(os.environ["NWCHEM_BASIS_LIBRARY"]))
+
+NwTaskTheory: TypeAlias = Literal[
+    "g3gn",
+    "scf",
+    "dft",
+    "esp",
+    "sodft",
+    "mp2",
+    "direct_mp2",
+    "rimp2",
+    "ccsd",
+    "ccsd(t)",
+    "ccsd+t(ccsd)",
+    "mcscf",
+    "selci",
+    "md",
+    "pspw",
+    "band",
+    "tce",
+    "tddft",
+]
+NwTaskOperation: TypeAlias = Literal[
+    "energy",
+    "gradient",
+    "optimize",
+    "saddle",
+    "hessian",
+    "frequencies",
+    "freq",
+    "vscf",
+    "property",
+    "dynamics",
+    "thermodynamics",
+    "",
+]
+NwTaskDirectiveValue: TypeAlias = str | int | float
+NwTaskDirectives: TypeAlias = Mapping[str, NwTaskDirectiveValue]
+NwTaskAlternateDirectives: TypeAlias = Mapping[str, str | NwTaskDirectives]
 
 
 class NwTask(MSONable):
     """Base task for Nwchem."""
 
-    theories: ClassVar[dict[str, str]] = {
+    theories: ClassVar[dict[NwTaskTheory, str]] = {
         "g3gn": "some description",
         "scf": "Hartree-Fock",
         "dft": "DFT",
@@ -66,7 +107,7 @@ class NwTask(MSONable):
         "tddft": "Time Dependent DFT",
     }
 
-    operations: ClassVar[dict[str, str]] = {
+    operations: ClassVar[dict[NwTaskOperation, str]] = {
         "energy": "Evaluate the single point energy.",
         "gradient": "Evaluate the derivative of the energy with respect to nuclear coordinates.",
         "optimize": "Minimize the energy by varying the molecular structure.",
@@ -83,29 +124,24 @@ class NwTask(MSONable):
 
     def __init__(
         self,
-        charge,
-        spin_multiplicity,
-        basis_set,
-        basis_set_option="cartesian",
-        title=None,
-        theory="dft",
-        operation="optimize",
-        theory_directives=None,
-        alternate_directives=None,
-    ):
+        charge: float,
+        spin_multiplicity: int,
+        basis_set: dict[str, str],
+        basis_set_option: Literal["cartesian", "spherical"] = "cartesian",
+        title: str | None = None,
+        theory: NwTaskTheory = "dft",
+        operation: NwTaskOperation = "optimize",
+        theory_directives: NwTaskDirectives | None = None,
+        alternate_directives: NwTaskAlternateDirectives | None = None,
+    ) -> None:
         """
         Very flexible arguments to support many types of potential setups.
         Users should use more friendly static methods unless they need the
         flexibility.
 
         Args:
-            charge: Charge of the molecule. If None, charge on molecule is
-                used. Defaults to None. This allows the input file to be set a
-                charge independently from the molecule itself.
-            spin_multiplicity: Spin multiplicity of molecule. Defaults to None,
-                which means that the spin multiplicity is set to 1 if the
-                molecule has no unpaired electrons and to 2 if there are
-                unpaired electrons.
+            charge: Charge used for the task.
+            spin_multiplicity: Spin multiplicity used for the task.
             basis_set: The basis set used for the task as a dict. e.g.
                 {"C": "6-311++G**", "H": "6-31++G**"}.
             basis_set_option: cartesian (default) | spherical,
@@ -147,7 +183,7 @@ class NwTask(MSONable):
         self.theory_directives = theory_directives or {}
         self.alternate_directives = alternate_directives or {}
 
-    def __str__(self):
+    def __str__(self) -> str:
         bset_spec = []
         for el, bset in sorted(self.basis_set.items(), key=lambda x: x[0]):
             bset_spec.append(f' {el} library "{bset}"')
@@ -187,7 +223,7 @@ $theory_spec
             output += f"task {self.theory} {self.operation}"
         return output
 
-    def as_dict(self):
+    def as_dict(self) -> dict[str, Any]:
         """Get MSONable dict."""
         return {
             "@module": type(self).__module__,
@@ -204,7 +240,7 @@ $theory_spec
         }
 
     @classmethod
-    def from_dict(cls, dct: dict) -> Self:
+    def from_dict(cls, dct: dict[str, Any]) -> Self:
         """Reconstruct NwTask from its MSONable dict representation.
 
         Args:
@@ -228,16 +264,16 @@ $theory_spec
     @classmethod
     def from_molecule(
         cls,
-        mol,
-        theory,
-        charge=None,
-        spin_multiplicity=None,
-        basis_set="6-31g",
-        basis_set_option="cartesian",
-        title=None,
-        operation="optimize",
-        theory_directives=None,
-        alternate_directives=None,
+        mol: Molecule,
+        theory: NwTaskTheory,
+        charge: float | None = None,
+        spin_multiplicity: int | None = None,
+        basis_set: dict[str, str] | str = "6-31g",
+        basis_set_option: Literal["cartesian", "spherical"] = "cartesian",
+        title: str | None = None,
+        operation: NwTaskOperation = "optimize",
+        theory_directives: NwTaskDirectives | None = None,
+        alternate_directives: NwTaskAlternateDirectives | None = None,
     ) -> Self:
         """
         Very flexible arguments to support many types of potential setups.
@@ -246,6 +282,7 @@ $theory_spec
 
         Args:
             mol: Input molecule
+            theory: The theory used for the task.
             charge: Charge of the molecule. If None, charge on molecule is
                 used. Defaults to None. This allows the input file to be set a
                 charge independently from the molecule itself.
@@ -260,7 +297,6 @@ $theory_spec
             title: Title for the task. Defaults to None, which means a title
                 based on the theory and operation of the task is
                 autogenerated.
-            theory: The theory used for the task. Defaults to "dft".
             operation: The operation for the task. Defaults to "optimize".
             theory_directives: A dict of theory directives. For example,
                 if you are running dft calculations, you may specify the
@@ -299,7 +335,7 @@ $theory_spec
         )
 
     @classmethod
-    def dft_task(cls, mol, xc="b3lyp", **kwargs):
+    def dft_task(cls, mol: Molecule, xc: str = "b3lyp", **kwargs) -> Self:
         """
         A class method for quickly creating DFT tasks with optional
         cosmo parameter .
@@ -310,12 +346,12 @@ $theory_spec
             kwargs: Any of the other kwargs supported by NwTask. Note the
                 theory is always "dft" for a dft task.
         """
-        t = NwTask.from_molecule(mol, theory="dft", **kwargs)
-        t.theory_directives |= {"xc": xc, "mult": t.spin_multiplicity}
-        return t
+        task = NwTask.from_molecule(mol, theory="dft", **kwargs)
+        task.theory_directives |= {"xc": xc, "mult": task.spin_multiplicity}
+        return task
 
     @classmethod
-    def esp_task(cls, mol, **kwargs):
+    def esp_task(cls, mol: Molecule, **kwargs) -> Self:
         """
         A class method for quickly creating ESP tasks with RESP
         charge fitting.
@@ -336,19 +372,17 @@ class NwInput(MSONable):
 
     def __init__(
         self,
-        mol,
-        tasks,
-        directives=None,
-        geometry_options=("units", "angstroms"),
-        symmetry_options=None,
-        memory_options=None,
-    ):
+        mol: Molecule,
+        tasks: list[NwTask],
+        directives: list[tuple[str, ...]] | None = None,
+        geometry_options: Sequence[str] = ("units", "angstroms"),
+        symmetry_options: Sequence[str] | None = None,
+        memory_options: str | None = None,
+    ) -> None:
         """Initialize a NwInput.
 
         Args:
-            mol: Input molecule. If molecule is a single string, it is used as a
-                direct input to the geometry section of the Gaussian input
-                file.
+            mol: Input molecule.
             tasks: List of NwTasks.
             directives: List of root level directives as tuple. e.g.
                 [("start", "water"), ("print", "high")]
@@ -367,12 +401,7 @@ class NwInput(MSONable):
         self.symmetry_options = symmetry_options
         self.memory_options = memory_options
 
-    @property
-    def molecule(self):
-        """Molecule associated with this GaussianInput."""
-        return self._mol
-
-    def __str__(self):
+    def __str__(self) -> str:
         out = []
         if self.memory_options:
             out.append(f"memory {self.memory_options}")
@@ -388,7 +417,12 @@ class NwInput(MSONable):
             out.extend((str(task), ""))
         return "\n".join(out)
 
-    def write_file(self, filename):
+    @property
+    def molecule(self) -> Molecule:
+        """Molecule associated with this NwInput."""
+        return self._mol
+
+    def write_file(self, filename: PathLike) -> None:
         """Write the input to a file.
 
         Args:
@@ -397,7 +431,7 @@ class NwInput(MSONable):
         with zopen(filename, mode="wt", encoding="utf-8") as file:
             file.write(str(self))
 
-    def as_dict(self):
+    def as_dict(self) -> dict[str, Any]:
         """Get MSONable dict."""
         return {
             "mol": self._mol.as_dict(),
@@ -409,7 +443,7 @@ class NwInput(MSONable):
         }
 
     @classmethod
-    def from_dict(cls, dct: dict) -> Self:
+    def from_dict(cls, dct: dict[str, Any]) -> Self:
         """Reconstruct NwInput from its MSONable dict representation.
 
         Args:
@@ -484,10 +518,13 @@ class NwInput(MSONable):
                     coords.append([float(x) for x in tokens[1:]])
 
                 mol = Molecule(species, coords)
+
             elif tokens[0].lower() == "charge":
                 charge = int(tokens[1])
+
             elif tokens[0].lower() == "title":
                 title = line[5:].strip().strip('"')
+
             elif tokens[0].lower() == "basis":
                 # Parse basis sets
                 line = lines.pop(0).strip()
@@ -496,6 +533,7 @@ class NwInput(MSONable):
                     tokens = line.split()
                     basis_set[tokens[0]] = tokens[-1].strip('"')
                     line = lines.pop(0).strip()
+
             elif tokens[0].lower() in NwTask.theories:
                 # read the basis_set_option
                 if len(tokens) > 1:
@@ -510,6 +548,7 @@ class NwInput(MSONable):
                     if tokens[0] == "mult":
                         spin_multiplicity = float(tokens[1])
                     line = lines.pop(0).strip()
+
             elif tokens[0].lower() == "task":
                 tasks.append(
                     NwTask(
@@ -523,8 +562,10 @@ class NwInput(MSONable):
                         theory_directives=theory_directives.get(tokens[1]),
                     )
                 )
+
             elif tokens[0].lower() == "memory":
                 memory_options = " ".join(tokens[1:])
+
             else:
                 directives.append(line.strip().split())
 
@@ -538,7 +579,7 @@ class NwInput(MSONable):
         )
 
     @classmethod
-    def from_file(cls, filename: str | Path) -> Self:
+    def from_file(cls, filename: PathLike) -> Self:
         """
         Read an NwInput from a file. Currently tested to work with
         files generated from this class itself.
@@ -550,7 +591,7 @@ class NwInput(MSONable):
             NwInput object
         """
         with zopen(filename, mode="rt", encoding="utf-8") as file:
-            return cls.from_str(file.read())  # type:ignore[arg-type]
+            return cls.from_str(file.read())
 
 
 class NwInputError(Exception):
@@ -565,7 +606,7 @@ class NwOutput:
     eV in the parser.
     """
 
-    def __init__(self, filename):
+    def __init__(self, filename: PathLike) -> None:
         """Initialize a NwOutput.
 
         Args:
@@ -581,11 +622,20 @@ class NwOutput:
             chunks.pop()
         preamble = chunks.pop(0)
 
-        self.raw = data
-        self.job_info = self._parse_preamble(preamble)
-        self.data = [self._parse_job(c) for c in chunks]
+        self.raw: str = data
+        self.job_info: dict[str, str] = self._parse_preamble(preamble)
+        self.data: list[dict[str, Any]] = [self._parse_job(chunk) for chunk in chunks]
 
-    def parse_tddft(self):
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        return iter(self.data)
+
+    def __getitem__(self, ind: int | slice) -> dict[str, Any] | list[dict[str, Any]]:
+        return self.data[ind]
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def parse_tddft(self) -> dict[str, list[dict[str, float]]]:
         """
         Parses TDDFT roots. Adapted from nw_spectrum.py script.
 
@@ -629,7 +679,11 @@ class NwOutput:
 
         return roots
 
-    def get_excitation_spectrum(self, width=0.1, npoints=2000):
+    def get_excitation_spectrum(
+        self,
+        width: float = 0.1,
+        npoints: int = 2000,
+    ) -> ExcitationSpectrum:
         """Generate an excitation spectra from the singlet roots of TDDFT calculations.
 
         Args:
@@ -675,7 +729,7 @@ class NwOutput:
         return ExcitationSpectrum(x, y)
 
     @staticmethod
-    def _parse_preamble(preamble):
+    def _parse_preamble(preamble: str) -> dict[str, str]:
         info = {}
         for line in preamble.split("\n"):
             tokens = line.split("=")
@@ -683,17 +737,8 @@ class NwOutput:
                 info[tokens[0].strip()] = tokens[-1].strip()
         return info
 
-    def __iter__(self):
-        return iter(self.data)
-
-    def __getitem__(self, ind):
-        return self.data[ind]
-
-    def __len__(self):
-        return len(self.data)
-
     @staticmethod
-    def _parse_job(output):
+    def _parse_job(output: str) -> dict[str, Any]:
         energy_patt = re.compile(r"Total \w+ energy\s+=\s+([.\-\d]+)")
         energy_gas_patt = re.compile(r"gas phase energy\s+=\s+([.\-\d]+)")
         energy_sol_patt = re.compile(r"sol phase energy\s+=\s+([.\-\d]+)")
@@ -714,10 +759,10 @@ class NwOutput:
             "dft optimize failed": "Geometry optimization failed",
         }
 
-        def fort2py(x):
+        def fort2py(x: str) -> str:
             return x.replace("D", "e")
 
-        def isfloatstring(in_str):
+        def isfloatstring(in_str: str) -> bool:
             return in_str.find(".") == -1
 
         parse_hess = False
