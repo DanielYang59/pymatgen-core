@@ -1,6 +1,12 @@
 
 # Changelog
 
+## v2026.7.24
+
+- PR #95 `Outcar` table parsing now detects a truncated table (header present but no matching footer, e.g. an OUTCAR cut off mid-write) and emits a warning while returning the partial data, instead of hanging. (by @DanielYang59)
+- PR #92 Coordinate helpers handle empty/siteless inputs: `IStructure`/`Structure` coordinate accessors always return a 2D array even with no sites, and `get_all_distances` returns an empty array when either coordinate set is empty (previously errored on siteless/empty structures). (by @Sanftperlig)
+- PR #93 Replace hand-computed degree/radian conversions (`180.0 / pi`, `pi / 180.0`) with `math.radians`/`math.degrees` (and `np.deg2rad`/`np.rad2deg` for arrays) across `lattice`, `interface`, and `operations`. (by @Sanftperlig)
+
 ## v2026.7.16
 
 - PR #68 Refactor `IStructure`/`IMolecule` `{from_file,from_str,to}` onto a new `pymatgen.io.registry` module. Each `pymatgen.io.<format>` self-registers a `StructureFormat`/`MoleculeFormat` handler; built-in formats stay lazily imported (no added `from pymatgen.core import Structure` import cost) and third parties can plug in via the `pymatgen.io.structure_formats`/`pymatgen.io.molecule_formats` entry-point groups. User-facing behavior (aliases, filename-inference priority, error wording, kwarg warnings, default-to-JSON) is preserved; `aims`/`fleur` get fallback shims. (by @shyuep)
