@@ -52,8 +52,10 @@ class TestStructureNL:
 
         # set up remarks
         self.remark_fail = [
-            "This is a really long remark that is clearly invalid and must fail, don't you agree? It would be silly "
-            "to allow remarks that went on forever and ever."
+            (
+                "This is a really long remark that is clearly invalid and must fail, don't you agree? It would be "
+                "silly to allow remarks that went on forever and ever."
+            )
         ]
 
         # set up some authors

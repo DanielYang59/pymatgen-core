@@ -3300,8 +3300,10 @@ class Outcar:
 
             search.append(
                 [
-                    r"^ *[xyz] +([-0-9.Ee+]+) +([-0-9.Ee+]+)"
-                    r" +([-0-9.Ee+]+) *([-0-9.Ee+]+) +([-0-9.Ee+]+) +([-0-9.Ee+]+)*$",
+                    (
+                        r"^ *[xyz] +([-0-9.Ee+]+) +([-0-9.Ee+]+)"
+                        r" +([-0-9.Ee+]+) *([-0-9.Ee+]+) +([-0-9.Ee+]+) +([-0-9.Ee+]+)*$"
+                    ),
                     lambda results, _line: results.piezo_index >= 0 if results.piezo_index is not None else None,
                     piezo_data,
                 ]
@@ -3464,8 +3466,10 @@ class Outcar:
 
             search.append(
                 [
-                    r"^ *[xyz] +([-0-9.Ee+]+) +([-0-9.Ee+]+)"
-                    r" +([-0-9.Ee+]+) *([-0-9.Ee+]+) +([-0-9.Ee+]+) +([-0-9.Ee+]+)*$",
+                    (
+                        r"^ *[xyz] +([-0-9.Ee+]+) +([-0-9.Ee+]+)"
+                        r" +([-0-9.Ee+]+) *([-0-9.Ee+]+) +([-0-9.Ee+]+) +([-0-9.Ee+]+)*$"
+                    ),
                     lambda results, _line: (
                         results.piezo_ionic_index >= 0
                         if results.piezo_ionic_index is not None
@@ -3530,9 +3534,11 @@ class Outcar:
 
             search.append(
                 [
-                    r"^.*Total electronic dipole moment: "
-                    r"*p\[elc\]=\( *([-0-9.Ee+]*) *([-0-9.Ee+]*) "
-                    r"*([-0-9.Ee+]*) *\)",
+                    (
+                        r"^.*Total electronic dipole moment: "
+                        r"*p\[elc\]=\( *([-0-9.Ee+]*) *([-0-9.Ee+]*) "
+                        r"*([-0-9.Ee+]*) *\)"
+                    ),
                     None,
                     p_elec,
                 ]

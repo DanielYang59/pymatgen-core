@@ -419,8 +419,10 @@ class FiestaInput(MSONable):
             "",
             f" Number of atoms = {self._mol.composition.num_atoms} ; number of species = {len(self._mol.symbol_set)}",
             f" Number of valence bands = {int(self._mol.nelectrons / 2)}",
-            f" Sigma grid specs: n_grid = {self.correlation_grid['n_grid']} ;  "
-            f"dE_grid = {self.correlation_grid['dE_grid']} (eV)",
+            (
+                f" Sigma grid specs: n_grid = {self.correlation_grid['n_grid']} ;  "
+                f"dE_grid = {self.correlation_grid['dE_grid']} (eV)"
+            ),
         ]
         if int(self.Exc_DFT_option["rdVxcpsi"]) == 1:
             lst.append(" Exchange and correlation energy read from Vxcpsi.mat")
@@ -429,21 +431,27 @@ class FiestaInput(MSONable):
 
         if self.cohsex_options["eigMethod"] == "C":
             lst += [
-                f" Correcting  {self.cohsex_options['nv_cohsex']} valence bands and  "
-                f"{self.cohsex_options['nc_cohsex']} conduction bands at COHSEX level",
+                (
+                    f" Correcting  {self.cohsex_options['nv_cohsex']} valence bands and  "
+                    f"{self.cohsex_options['nc_cohsex']} conduction bands at COHSEX level"
+                ),
                 f" Performing   {self.cohsex_options['nit_cohsex']} diagonal COHSEX iterations",
             ]
         elif self.cohsex_options["eigMethod"] == "HF":
             lst += [
-                f" Correcting  {self.cohsex_options['nv_cohsex']} valence bands and  "
-                f"{self.cohsex_options['nc_cohsex']} conduction bands at HF level",
+                (
+                    f" Correcting  {self.cohsex_options['nv_cohsex']} valence bands and  "
+                    f"{self.cohsex_options['nc_cohsex']} conduction bands at HF level"
+                ),
                 f" Performing   {self.cohsex_options['nit_cohsex']} diagonal HF iterations",
             ]
 
         lst += [
             f" Using resolution of identity : {self.cohsex_options['resMethod']}",
-            f" Correcting  {self.GW_options['nv_corr']} valence bands and "
-            f"{self.GW_options['nc_corr']} conduction bands at GW level",
+            (
+                f" Correcting  {self.GW_options['nv_corr']} valence bands and "
+                f"{self.GW_options['nc_corr']} conduction bands at GW level"
+            ),
             f" Performing   {self.GW_options['nit_gw']} GW iterations",
         ]
 

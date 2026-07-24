@@ -166,12 +166,12 @@ ignore = [
     "SLF", # Access "private" class members
     "T20", # Check for print/pprint
     "TD", # TODO tags related
-    "CPY001", # Copyright warning.
 
     # Single rules
     "B023", # Function definition does not bind loop variable
     "B904", # Within an except clause, raise exceptions with ...
     "C408", # unnecessary-collection-call
+    "CPY001", # Missing copyright notice at top of file
     "D105", # Missing docstring in magic method
     "D205", # One blank line required between summary line and description
     "D212", # Multi-line docstring summary should start at the first line
@@ -183,6 +183,7 @@ ignore = [
     "PLR0912", # Too many branches
     "PLR0913", # Too many arguments
     "PLR0915", # Too many statements
+    "PLR0917", # Too many positional arguments
     "PLR2004", # Magic-value-comparison TODO: fix this
     "PLW1641", # eq-without-hash TODO: fix this
     "PLW2901", # Outer for loop variable overwritten by inner assignment target
@@ -292,5 +293,5 @@ test = [
 lint = [
     "mypy>=1.15.0",
     "pyright>=1.1.398",
-    "ruff>=0.11.3",
+    "ruff>=0.16",
 ]

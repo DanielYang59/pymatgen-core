@@ -18,7 +18,7 @@ ci:
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
+    rev: v0.16.0
     hooks:
       # ``ruff-check`` is the modern hook id; ``id: ruff`` is the legacy
       # alias and prints a "ruff (legacy alias)" warning every run.
