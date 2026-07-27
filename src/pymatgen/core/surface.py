@@ -2057,8 +2057,8 @@ def get_symmetrically_equivalent_miller_indices(
 def get_symmetrically_distinct_miller_indices(
     structure: Structure | IStructure,
     max_index: int,
-    return_hkil: Literal[False] = False,
-    cell: Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"] = "input",
+    return_hkil: Literal[False],
+    cell: Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"],
 ) -> list[tuple[int, int, int]]: ...
 
 
@@ -2066,8 +2066,8 @@ def get_symmetrically_distinct_miller_indices(
 def get_symmetrically_distinct_miller_indices(
     structure: Structure | IStructure,
     max_index: int,
-    return_hkil: Literal[True] = True,
-    cell: Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"] = "input",
+    return_hkil: Literal[True],
+    cell: Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"],
 ) -> list[tuple[int, int, int, int]]: ...
 
 
@@ -2089,7 +2089,7 @@ def get_symmetrically_distinct_miller_indices(
             Keep in mind that for hkil, `abs(i) > max_index` is possible.
         return_hkil (bool): Whether to return hkil (True) form of Miller
             index for hexagonal systems, or hkl (False). Only valid for cells in the hexagonal family.
-        cell (Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"] = "conventional"):
+        cell (Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"] = "input"):
             Cell type to base the Miller indices on.
 
             "input": Use the structure as given and its direct symmetry operations.
