@@ -150,7 +150,6 @@ class Slab(Structure):
                 lattice.gamma,
             )
 
-            oriented_unit_cell = copy.deepcopy(oriented_unit_cell)
             ouc_lattice = oriented_unit_cell.lattice
             ouc_lattice = Lattice.from_parameters(
                 ouc_lattice.a,
@@ -161,7 +160,7 @@ class Slab(Structure):
                 ouc_lattice.gamma,
             )
 
-            self.oriented_unit_cell: Structure | IStructure = Structure(
+            self.oriented_unit_cell = type(oriented_unit_cell)(
                 ouc_lattice,
                 oriented_unit_cell.species_and_occu,
                 oriented_unit_cell.frac_coords,
@@ -924,6 +923,7 @@ class SlabGenerator:
         primitive: bool = True,
         max_normal_search: int | None = None,
         reorient_lattice: bool = True,
+        allow_smaller_than_ouc: bool = False,
     ) -> None:
         """Calculate the slab scale factor and uses it to generate an
         oriented unit cell (OUC) of the initial structure.
@@ -967,8 +967,14 @@ class SlabGenerator:
                 cell for simulation. Normality is not guaranteed, but the oriented
                 cell will have the c vector as normal as possible to the surface.
                 The max absolute Miller index is usually sufficient.
-            reorient_lattice (bool): reorient the lattice such that
-                the c direction is parallel to the third lattice vector
+            reorient_lattice (bool): Reorient the lattice such that
+                the c direction is parallel to the third lattice vector?
+            allow_smaller_than_ouc (bool = False): Allow slabs that are smaller
+                than the OUC via primitivization? Enables reduction of the OUC and Slab,
+                and also allows the lattice of the slab to diverge from the lattice of the OUC.
+                This is relevant with primitivization, as the used algorithm may only
+                find a different surface cell if the termination is better than in the
+                OUC.
         """
 
         def reduce_vector(vector: tuple[int, ...]) -> tuple[int, ...]:
@@ -1059,7 +1065,7 @@ class SlabGenerator:
 
             slab_scale_factor = np.array(slab_scale_factor)  # type: ignore[assignment]
 
-            # Let's make sure we have a left-handed crystallographic system
+            # Let's make sure we have a right-handed crystallographic system
             if np.linalg.det(slab_scale_factor) < 0:
                 slab_scale_factor *= -1
 
@@ -1080,8 +1086,7 @@ class SlabGenerator:
         # Calculate scale factor
         slab_scale_factor = calculate_scaling_factor()
 
-        single = initial_structure.copy()
-        single.make_supercell(slab_scale_factor)
+        single = initial_structure.make_supercell(slab_scale_factor, in_place=False)
 
         # Calculate the most reduced structure as OUC to minimize calculations
         self.oriented_unit_cell = Structure.from_sites(single, to_unit_cell=True)
@@ -1098,9 +1103,9 @@ class SlabGenerator:
         self.primitive = primitive
         self._normal = normal  # TODO (@DanielYang59): used only in unit test
         self.reorient_lattice = reorient_lattice
+        self.allow_smaller_than_ouc = allow_smaller_than_ouc
 
-        _a, _b, c = self.oriented_unit_cell.lattice.matrix
-        self._proj_height = abs(np.dot(normal, c))
+        self._proj_height = abs(np.dot(normal, self.oriented_unit_cell.lattice.matrix[2]))
 
     def get_slab(
         self,
@@ -1150,7 +1155,7 @@ class SlabGenerator:
         frac_coords[:, 2] /= n_layers
 
         # Duplicate atom layers by stacking along the z-axis
-        all_coords = []
+        all_coords: list[NDArray[np.float64]] = []
         for idx in range(n_layers_slab):
             _frac_coords = frac_coords.copy()
             _frac_coords[:, 2] += idx / n_layers
@@ -1181,35 +1186,42 @@ class SlabGenerator:
         if self.center_slab:
             struct = center_slab(struct)
 
-        ouc = self.oriented_unit_cell.copy()
-
+        ouc = self.oriented_unit_cell
         # Reduce to primitive cell
         if self.primitive:
-            prim_slab = struct.get_primitive_structure(tolerance=tol, reduce=False)
-
-            if energy is not None:
-                energy *= prim_slab.volume / struct.volume
+            prim_slab = struct.get_primitive_structure(tolerance=tol, reduce=self.allow_smaller_than_ouc)
 
             # Find a reduced OUC
             prim_slab_l = prim_slab.lattice
-            prim_ouc = ouc.get_primitive_structure(
-                constrain_latt={
+            prim_ouc = self.oriented_unit_cell.get_primitive_structure(
+                constrain_latt={}
+                if self.allow_smaller_than_ouc
+                else {
                     "a": prim_slab_l.a,
                     "b": prim_slab_l.b,
                     "alpha": prim_slab_l.alpha,
                     "beta": prim_slab_l.beta,
                     "gamma": prim_slab_l.gamma,
                 },
-                reduce=False,
+                reduce=self.allow_smaller_than_ouc,
             )
 
-            # Ensure lattice a and b are consistent between the OUC and the slab
-            a_b_consistent = np.isclose(prim_slab_l.a, prim_ouc.lattice.a) and np.isclose(
-                prim_slab_l.b, prim_ouc.lattice.b
-            )
-            if a_b_consistent:
+            # Ensure lattice a and b is consistent between the OUC and the slab
+            # Gamma remains unchecked, so the surface could diverge even with no allow_smaller_than_ouc
+            if self.allow_smaller_than_ouc or (
+                np.isclose(prim_slab_l.a, prim_ouc.lattice.a) and np.isclose(prim_slab_l.b, prim_ouc.lattice.b)
+            ):
+                if energy is not None:
+                    energy *= prim_slab.volume / struct.volume
                 struct = prim_slab
                 ouc = prim_ouc
+
+        # Correct the scale_factor for LLL, primitivization, c-axis changes
+        # Orienting of either lattice must happen after this, not before
+        scale_factor = np.linalg.solve(
+            self.parent.lattice.matrix.T,
+            struct.lattice.matrix.T,
+        ).T
 
         return Slab(
             struct.lattice,
@@ -1226,7 +1238,7 @@ class SlabGenerator:
 
     def get_slabs(
         self,
-        bonds: dict[tuple[Species | Element, Species | Element], float] | None = None,
+        bonds: dict[tuple[Species | Element | str, Species | Element | str], float] | None = None,
         ftol: float = 0.1,
         tol: float = 0.1,
         max_broken_bonds: int = 0,
@@ -1282,8 +1294,8 @@ class SlabGenerator:
 
             # Compute a Cartesian z-coordinate distance matrix
             # TODO (@DanielYang59): account for periodic boundary condition
-            dist_matrix: NDArray = np.zeros((n_atoms, n_atoms))
-            for i, j in itertools.combinations(list(range(n_atoms)), 2):
+            dist_matrix: NDArray = np.zeros((n_atoms, n_atoms), dtype=np.float64)
+            for i, j in itertools.combinations(range(n_atoms), 2):
                 if i != j:
                     z_dist = frac_coords[i][2] - frac_coords[j][2]
                     z_dist = abs(z_dist - round(z_dist)) * self._proj_height
@@ -1317,7 +1329,7 @@ class SlabGenerator:
             return sorted(terminations)
 
         def get_z_ranges(
-            bonds: dict[tuple[Species | Element, Species | Element], float],
+            bonds: dict[tuple[Species | Element | str, Species | Element | str], float],
             ztol: float,
         ) -> list[tuple[float, float]]:
             """Collect occupied z ranges where each range is a (lower_z, upper_z) tuple.
@@ -1360,7 +1372,7 @@ class SlabGenerator:
         # Get occupied z_ranges
         z_ranges = [] if bonds is None else get_z_ranges(bonds, ztol)
 
-        slabs = []
+        slabs: list[Slab] = []
         for termination in gen_possible_terminations(ftol=ftol):
             # Calculate total number of bonds broken (how often the
             # termination fall within the z_range occupied by a bond)
@@ -1403,12 +1415,12 @@ class SlabGenerator:
         else:
             final_slabs = slabs
 
-        return cast("list[Slab]", sorted(final_slabs, key=lambda slab: slab.energy))
+        return sorted(final_slabs, key=lambda slab: slab.energy or 0)
 
     def repair_broken_bonds(
         self,
         slab: Slab,
-        bonds: dict[tuple[Species | Element, Species | Element], float],
+        bonds: dict[tuple[Species | Element | str, Species | Element | str], float],
     ) -> Slab:
         """Repair broken bonds (specified by the bonds parameter) due to
         slab cleaving, and repair them by moving undercoordinated atoms
@@ -1616,6 +1628,7 @@ def generate_all_slabs(
     repair: bool = False,
     include_reconstructions: bool = False,
     in_unit_planes: bool = False,
+    allow_smaller_than_ouc: bool = False,
 ) -> list[Slab]:
     """Find all unique Slabs up to a given Miller index.
 
@@ -1676,6 +1689,12 @@ def generate_all_slabs(
             Fe(100) will have more layers. The slab thickness
             will be in min_slab_size/math.ceil(self._proj_height/dhkl)
             multiples of oriented unit cells.
+        allow_smaller_than_ouc (bool = False): Allow slabs that are smaller
+            than the OUC via primitivization? Enables reduction of the OUC and Slab,
+            and also allows the lattice of the slab to diverge from the lattice of the OUC.
+            This is relevant with primitivization, as the used algorithm may only
+            find a different surface cell if the termination is better than in the
+            OUC.
     """
     all_slabs: list[Slab] = []
 
@@ -1690,6 +1709,7 @@ def generate_all_slabs(
             primitive=primitive,
             max_normal_search=max_normal_search,
             in_unit_planes=in_unit_planes,
+            allow_smaller_than_ouc=allow_smaller_than_ouc,
         )
         slabs = gen.get_slabs(
             bonds=bonds,
@@ -2014,8 +2034,7 @@ def get_symmetrically_equivalent_miller_indices(
         _miller_index = (miller_index[0], miller_index[1], miller_index[2])
 
     max_idx = max(np.abs(miller_index))
-    idx_range = list(range(-max_idx, max_idx + 1))
-    idx_range.reverse()
+    idx_range = range(max_idx, -max_idx - 1, -1)
 
     # Skip crystal system analysis if already given
     if system:
@@ -2035,13 +2054,14 @@ def get_symmetrically_equivalent_miller_indices(
         symm_ops = structure.lattice.get_recp_symmetry_operation()
 
     equivalent_millers: list[tuple[int, int, int]] = [_miller_index]  # type: ignore[list-item]
+    # Explicit x3 repeat instead of keyword, so mypy understands it correctly
     for miller in itertools.product(idx_range, idx_range, idx_range):
         if miller == _miller_index:
             continue
 
         if any(idx != 0 for idx in miller):
             if _is_in_miller_family(miller, equivalent_millers, symm_ops):
-                equivalent_millers += [miller]
+                equivalent_millers.append(miller)
 
             # Include larger Miller indices in the family of planes
             if (
