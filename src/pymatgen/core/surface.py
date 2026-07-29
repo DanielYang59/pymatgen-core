@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 
 
 class Slab(Structure):
-    """Hold information for a Slab, with additional
+    """Holds information for a Slab, with additional
     attributes pertaining to slabs, but the init method does not
     actually create a slab. Also has additional methods that returns other information
     about a Slab such as the surface area, normal, and atom adsorption.
@@ -92,10 +92,7 @@ class Slab(Structure):
         and methods pertaining to Slabs.
 
         Args:
-            lattice (Lattice/3x3 array): The lattice, either as a
-                pymatgen.core.Lattice or simply as any 2D array.
-                Each row should correspond to a lattice
-                vector. e.g. [[10,0,0], [20,10,0], [0,0,30]].
+            lattice (Lattice): The lattice as a pymatgen.core.Lattice.
             species ([Species]): Sequence of species on each site. Can take in
                 flexible input, including:
 
@@ -106,7 +103,7 @@ class Slab(Structure):
                 ii. List of dict of elements/species and occupancies, e.g.
                     [{"Fe": 0.5, "Mn": 0.5}, ...]. This allows the setup of
                     disordered structures.
-            coords (Nx3 array): list of fractional/cartesian coordinates of each species.
+            coords (Nx3 array): Array of fractional/cartesian coordinates of each species.
             miller_index (tuple[int, ...]): Miller index of plane parallel to
                 surface. Note that this is referenced to the input structure. If
                 you need this to be based on the conventional cell,
@@ -115,7 +112,7 @@ class Slab(Structure):
                 this Slab is created (by scaling in the c-direction).
             shift (float): The NEGATIVE of shift in the c-direction applied
                 to get the termination.
-            scale_factor (np.ndarray): scale_factor Final computed scale factor
+            scale_factor (np.ndarray): Final computed scale factor
                 that brings the parent cell to the surface cell.
             reorient_lattice (bool): reorients the lattice parameters such that
                 the c direction is along the z axis.
@@ -260,7 +257,9 @@ class Slab(Structure):
             shift=dct["shift"],
             scale_factor=np.array(dct["scale_factor"]),
             site_properties=struct.site_properties,
+            reconstruction=dct.get("reconstruction"),
             energy=dct["energy"],
+            reorient_lattice=dct.get("reorient_lattice", True),
         )
 
     def as_dict(self, **kwargs) -> dict:
@@ -274,6 +273,7 @@ class Slab(Structure):
         dct["scale_factor"] = self.scale_factor.tolist()  # np.ndarray is not JSON serializable
         dct["reconstruction"] = self.reconstruction
         dct["energy"] = self.energy
+        dct["reorient_lattice"] = self.reorient_lattice
         return dct
 
     def copy(self, site_properties: dict[str, Any] | None = None) -> Self:
@@ -301,6 +301,8 @@ class Slab(Structure):
             self.scale_factor,
             site_properties=props,
             reorient_lattice=self.reorient_lattice,
+            reconstruction=self.reconstruction,
+            energy=self.energy,
         )
 
     def is_symmetric(self, symprec: float = 0.1) -> bool:
@@ -494,6 +496,7 @@ class Slab(Structure):
             energy=self.energy,
             reorient_lattice=self.reorient_lattice,
             site_properties=self.site_properties,
+            reconstruction=self.reconstruction,
         )
 
     def get_tasker2_slabs(
@@ -594,6 +597,7 @@ class Slab(Structure):
                     self.scale_factor,
                     energy=self.energy,
                     reorient_lattice=self.reorient_lattice,
+                    reconstruction=self.reconstruction,
                 )
                 slabs.append(slab)
         stm = StructureMatcher()
@@ -624,6 +628,7 @@ class Slab(Structure):
             self.scale_factor,
             site_properties=struct.site_properties,
             reorient_lattice=self.reorient_lattice,
+            reconstruction=self.reconstruction,
         )
 
     def add_adsorbate_atom(
