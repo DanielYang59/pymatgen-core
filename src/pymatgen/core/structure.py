@@ -4064,6 +4064,28 @@ class Structure(IStructure, collections.abc.MutableSequence[PeriodicSite]):
         """Delete a site from the Structure."""
         self._sites.__delitem__(idx)
 
+    @IStructure.frac_coords.setter
+    def frac_coords(self, fractional_coords: ArrayLike) -> None:
+        """Sets the fractional coordinates of the Sites in the Structure."""
+        if len(fractional_coords) != len(self.sites):
+            raise ValueError(
+                "A Structure must have as many coordinates as it has sites, "
+                f"{len(fractional_coords)=} != {len(self.sites)=}."
+            )
+        for i, site in enumerate(self.sites):
+            site.frac_coords = np.asarray(fractional_coords[i], dtype=np.float64)
+
+    @IStructure.cart_coords.setter
+    def cart_coords(self, cartesian_coords: ArrayLike) -> None:
+        """Sets the cartesian coordinates of the Sites in the Structure."""
+        if len(cartesian_coords) != len(self.sites):
+            raise ValueError(
+                "A Structure must have as many coordinates as it has sites, "
+                f"{len(cartesian_coords)=} != {len(self.sites)=}."
+            )
+        for i, site in enumerate(self.sites):
+            site.coords = np.asarray(cartesian_coords[i], dtype=np.float64)
+
     @property
     def lattice(self) -> Lattice:
         """Lattice associated with structure."""
@@ -4430,7 +4452,7 @@ class Structure(IStructure, collections.abc.MutableSequence[PeriodicSite]):
 
     def translate_sites(
         self,
-        indices: int | Sequence[int],
+        indices: int | Iterable[int],
         vector: ArrayLike,
         frac_coords: bool = True,
         to_unit_cell: bool = True,
@@ -4439,13 +4461,13 @@ class Structure(IStructure, collections.abc.MutableSequence[PeriodicSite]):
         unit cell. Modifies the structure in place.
 
         Args:
-            indices: Integer or List of site indices on which to perform the
+            indices: Integer or iterable of site indices on which to perform the
                 translation.
             vector: Translation vector for sites.
             frac_coords (bool): Whether the vector corresponds to fractional or
                 Cartesian coordinates.
-            to_unit_cell (bool): Whether new sites are transformed to unit
-                cell
+            to_unit_cell (bool): Whether the new coordinates are transformed to the unit
+                cell.
 
         Returns:
             Structure: self with translated sites.
