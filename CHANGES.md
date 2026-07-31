@@ -1,6 +1,17 @@
 
 # Changelog
 
+## v2026.7.31
+
+- New `MatPESRelaxSet` in `pymatgen.io.vasp.sets`: same settings as `MatPESStaticSet` but performs a full relaxation of ionic positions and cell (`ISIF=3`, `IBRION=2`, `NSW=99`) with a force-based convergence criterion (`EDIFFG=-0.02`), so DFT calculations can be performed to match MatPES MLIPs. (by @shyuep)
+- PR #110 Improve R-centering in `SpacegroupAnalyzer`. `get_conventional_to_primitive_transformation_matrix` now returns a positive-determinant (spglib-style, no reflection component) matrix for R-centered groups; `get_primitive_standard_structure` reorients rhombohedral lattices to the Setyawan/Curtarolo convention while keeping fractional coordinates instead of rebuilding sites and rechecking periodic equivalence; the unused `international_monoclinic` argument is deprecated (passing it emits a `DeprecationWarning`). **Behavior change:** the R-centering transformation matrix differs from the previous negative-determinant one, so primitive rhombohedral cells may come out with a different (equivalent) orientation. (by @Sanftperlig)
+- PR #97 Setters for `Structure.frac_coords` and `Structure.cart_coords` with length validation, enabling e.g. whole-structure translation via `struct.frac_coords += vector`. (by @Sanftperlig)
+- PR #105 `SlabGenerator` and `generate_all_slabs` gain `allow_smaller_than_ouc` (default `False`): with `primitive=True`, primitivization may reduce the slab below the oriented unit cell and its lattice may diverge from the OUC's. `Slab.scale_factor` is now corrected for LLL reduction, primitivization, and c-axis changes (solved from the parent lattice → slab lattice relation instead of the base-OUC scaling), and `Slab.oriented_unit_cell` preserves the input class (`Structure` vs `IStructure`). (by @Sanftperlig)
+- PR #109 Remove `ENAUG` from `MP24RelaxSet`, `MPSCANRelaxSet`, and `MatPESStaticSet` YAML configs and from `MVLSlabSet`, since VASP ignores/deprecates `ENAUG` when `PREC=Accurate`. (by @DanielYang59)
+- PR #112 Fix `latexify_spacegroup`/`unicodeify_spacegroup` subscripting only the single digit after `_`, so screw-axis symbols like `P2_12_12_1` render as `P2₁2₁2₁` instead of absorbing multi-digit runs. (by @minhsueh)
+- PR #102 Fix `BSPlotterProjected` crash when orbital summation is not enabled (`sum_morbs=None`). (by @ShengLin1001)
+- PR #106 Correct the `get_symmetrically_distinct_miller_indices` overload signatures and docstring default introduced in #101. (by @Sanftperlig)
+
 ## v2026.7.27
 
 - PR #101 Overhaul `get_symmetrically_distinct_miller_indices`. A new `cell` argument (`input`, `conventional`, `primitive`, `conv_np`, `prim_2conv`) makes the treatment of centered cells explicit instead of implicit; sorting is now fully deterministic (smaller max `|h|,|k|,|l|` first, then smaller sum of `|h|,|k|,|l|`, then larger `h`, `k`, `l`); indices with `gcd > 1` are skipped up front and fewer `SpacegroupAnalyzer` instances are built; a crystal-family helper was added to `SpacegroupAnalyzer` and the return type is now inferred from whether `hkil` or `hkl` is requested. **Behavior change:** trigonal cells are no longer implicitly primitivized (the default `cell="input"` uses the lattice as given), and the representative index chosen for a symmetry-equivalent set may differ. (by @Sanftperlig)
