@@ -1733,6 +1733,34 @@ class MatPESStaticSet(VaspInputSet):
 
 
 @dataclass
+class MatPESRelaxSet(MatPESStaticSet):
+    """Create input files for a MatPES relaxation calculation.
+
+    This uses the same settings as MatPESStaticSet (see its docstring for details) but
+    performs a full relaxation of both ionic positions and cell (ISIF=3) with a
+    force-based convergence criterion, consistent with the emphasis of MatPES on
+    accurate forces.
+
+    Args:
+        structure (Structure): The Structure to create inputs for. If None, the input
+            set is initialized without a Structure but one must be set separately before
+            the inputs are generated.
+        xc_functional ('R2SCAN'|'PBE'): Exchange-correlation functional to use. Defaults to 'PBE'.
+        **kwargs: Keywords supported by VaspInputSet.
+    """
+
+    @property
+    def incar_updates(self) -> dict[str, Any]:
+        """Updates to the INCAR config for this calculation type."""
+        return {
+            "EDIFFG": -0.02,
+            "IBRION": 2,
+            "ISIF": 3,
+            "NSW": 99,
+        }
+
+
+@dataclass
 class MPScanStaticSet(MPScanRelaxSet):
     """Create input files for a static calculation using the accurate and numerically
     efficient r2SCAN variant of the Strongly Constrained and Appropriately Normed

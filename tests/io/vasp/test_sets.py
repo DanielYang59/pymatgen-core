@@ -23,6 +23,7 @@ from pymatgen.io.vasp.sets import (
     MODULE_DIR,
     BadInputSetWarning,
     CINEBSet,
+    MatPESRelaxSet,
     MatPESStaticSet,
     MITMDSet,
     MITNEBSet,
@@ -986,6 +987,37 @@ class TestMatPESStaticSet(MatSciTest):
         assert incar["ALGO"] == "Normal"
         assert vis.potcar_symbols == ["Li_sv"]
         assert vis.kpoints is None
+
+
+class TestMatPESRelaxSet(MatSciTest):
+    def setup_method(self):
+        self.struct = Structure.from_file(f"{VASP_IN_DIR}/POSCAR")
+
+    def test_default(self):
+        input_set = MatPESRelaxSet(self.struct)
+        incar = input_set.incar
+        # relaxation parameters
+        assert incar["EDIFFG"] == approx(-0.02)
+        assert incar["IBRION"] == 2
+        assert incar["ISIF"] == 3
+        assert incar["NSW"] == 99
+        # all other settings should match MatPESStaticSet
+        static_incar = MatPESStaticSet(self.struct).incar
+        for key in set(incar) | set(static_incar):
+            if key in ("EDIFFG", "IBRION", "ISIF", "NSW"):
+                continue
+            assert incar.get(key) == static_incar.get(key), f"{key=} differs from MatPESStaticSet"
+        assert input_set.potcar_functional == "PBE_64"
+        assert input_set.kpoints is None
+
+    def test_r2scan(self):
+        input_set = MatPESRelaxSet(self.struct, xc_functional="R2SCAN")
+        incar = input_set.incar
+        assert incar["METAGGA"] == "R2scan"
+        assert incar.get("GGA") is None
+        assert incar["ALGO"] == "All"
+        assert incar["NSW"] == 99
+        assert incar["ISIF"] == 3
 
 
 class TestMPNonSCFSet(MatSciTest):
