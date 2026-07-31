@@ -1629,6 +1629,7 @@ def generate_all_slabs(
     include_reconstructions: bool = False,
     in_unit_planes: bool = False,
     allow_smaller_than_ouc: bool = False,
+    cell: Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"] = "input",
 ) -> list[Slab]:
     """Find all unique Slabs up to a given Miller index.
 
@@ -1695,10 +1696,38 @@ def generate_all_slabs(
             This is relevant with primitivization, as the used algorithm may only
             find a different surface cell if the termination is better than in the
             OUC.
+        cell (Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"] = "input"):
+            Cell type to base the Miller indices on.
+
+            "input": Use the structure as given and its direct symmetry operations.
+
+            "conventional": Use the conventional standard structure and its symmetry operations, except if the structure
+            is centered, use the symmetry operations of the primitive standard structure.
+            Use "conv_np" if this centering behaviour is unwanted.
+
+            "primitive": Use the primitive standard structure and its symmetry operations. Note that this means the
+            Miller indices apply to the primitive structure, not its conventional form. Use "prim_2conv" if you need
+            the equivalent conventional indices.
+
+            "conv_np": Use the conventional standard structure and its symmetry operations.
+            This is equivalent to "conventional", except if the conventional cell is centered. In that case,
+            it is treated as a larger cell instead of using the symmetry operations of the primitive cell.
+
+            "prim_2conv": Use the primitive standard structure and its symmetry operations, then convert the unique
+            indices (in the primitive basis) back to conventional indices.
+            Note that this is *not* the same as using "conventional" with the same `max_index`, as the latter will
+            include all distinct miller indices with a *conventional* index up to `max_index`, while the former returns
+            all distinct miller indices with a *primitive* index up to `max_index`
+            (but converted afterwards to conventional).
+
+    Returns:
+        all_slabs : list[Slab]
+            List of all distinct Slabs of all symmetrically distinct Miller indices according to the
+            settings.
     """
     all_slabs: list[Slab] = []
 
-    for miller in get_symmetrically_distinct_miller_indices(structure, max_index):
+    for miller in get_symmetrically_distinct_miller_indices(structure, max_index, cell=cell):
         gen = SlabGenerator(
             structure,
             miller,
