@@ -2082,8 +2082,8 @@ def get_symmetrically_equivalent_miller_indices(
 def get_symmetrically_distinct_miller_indices(
     structure: Structure | IStructure,
     max_index: int,
-    return_hkil: Literal[False],
-    cell: Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"],
+    return_hkil: Literal[False] = False,
+    cell: Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"] = "input",
 ) -> list[tuple[int, int, int]]: ...
 
 
@@ -2092,7 +2092,7 @@ def get_symmetrically_distinct_miller_indices(
     structure: Structure | IStructure,
     max_index: int,
     return_hkil: Literal[True],
-    cell: Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"],
+    cell: Literal["input", "conventional", "primitive", "conv_np", "prim_2conv"] = "input",
 ) -> list[tuple[int, int, int, int]]: ...
 
 
