@@ -1236,6 +1236,67 @@ class SlabGenerator:
             energy=energy,
         )
 
+    def gen_possible_terminations(self, ftol: float = 0.1) -> list[float]:
+        """Generate possible terminations by clustering z coordinates.
+
+        Args:
+            ftol (float): Threshold (in the lattice length unit) for fcluster to check if
+                two atoms are on the same plane. Atoms count as part of the cluster if their
+                distance in the surface normal to the next cluster atom is no larger than `ftol`.
+
+        Returns:
+            termination_shifts (list[float]): Shifts for terminations that avoid breaking atom clusters.
+        """
+
+        def pbc_mean(frac_z_coord: NDArray) -> float:
+            """Circular mean: Means fractional z coordinates, even across PBC boundaries."""
+            # Angle is periodic in the 0 to 2pi range -> 0 to 1 via *2pi
+            equiv_angle = 2.0 * np.pi * (frac_z_coord)
+            # Compute mean over e^(i*angle)
+            mean = np.mean(np.exp(1j * equiv_angle))
+            # Re-transform mean to angle and then z-coordinate
+            # np.angle returns (-pi, pi] => (-0.5, 0.5] - apply PBC for [0, 1)
+            return float(np.mod(np.angle(mean) / (2.0 * np.pi), 1.0))
+
+        frac_coords = self.oriented_unit_cell.frac_coords
+        n_atoms = len(frac_coords)
+
+        # For safety, stop empty Structures from progressing further
+        if n_atoms == 0:
+            return []
+        # Skip clustering when there is only one atom
+        if n_atoms == 1:
+            # Put the atom to the center
+            termination = frac_coords[0, 2] + 0.5
+            return [termination - math.floor(termination)]
+
+        # Compute a Cartesian z-coordinate distance matrix
+        dist_matrix = np.zeros((n_atoms, n_atoms), dtype=np.float64)
+        for i, j in itertools.combinations(range(n_atoms), 2):
+            z_dist = frac_coords[i, 2] - frac_coords[j, 2]
+            # Apply PBC and project onto surface normal
+            z_dist = abs(z_dist - round(z_dist)) * self._proj_height
+            dist_matrix[i, j] = z_dist
+            dist_matrix[j, i] = z_dist
+
+        # Cluster the sites by z coordinates
+        z_matrix = linkage(squareform(dist_matrix))
+        clusters = fcluster(z_matrix, ftol, criterion="distance")
+
+        # Generate cluster to z-coordinate mapping including PBC
+        # As representative z coordinate, choose the arithmetic mean of the atom fractional z-coordinates
+        cluster_zs = sorted(pbc_mean(frac_coords[clusters == cluster_idx, 2]) for cluster_idx in np.unique(clusters))
+
+        # Calculate terminations from ascending cluster z (which is in [0, 1)):
+        # Calculate centers between all sequential cluster zs
+        terminations = [0.5 * (cluster_zs[i] + cluster_zs[i + 1]) for i in range(len(cluster_zs) - 1)]
+        # Add the last-first pair, which needs PBC (as first + 1 is outside 0-1)
+        terminations.append((0.5 * (cluster_zs[0] + 1 + cluster_zs[-1])) % 1.0)
+
+        # Sort to insert the last-first pair at the correct location
+        terminations.sort()
+        return terminations
+
     def get_slabs(
         self,
         bonds: dict[tuple[Species | Element | str, Species | Element | str], float] | None = None,
@@ -1275,58 +1336,6 @@ class SlabGenerator:
             list[Slab]: All possible Slabs of a particular surface,
                 sorted by the number of bonds broken.
         """
-
-        def gen_possible_terminations(ftol: float) -> list[float]:
-            """Generate possible terminations by clustering z coordinates.
-
-            Args:
-                ftol (float): Threshold for fcluster to check if
-                    two atoms are on the same plane.
-            """
-            frac_coords = self.oriented_unit_cell.frac_coords
-            n_atoms: int = len(frac_coords)
-
-            # Skip clustering when there is only one atom
-            if n_atoms == 1:
-                # Put the atom to the center
-                termination = frac_coords[0][2] + 0.5
-                return [termination - math.floor(termination)]
-
-            # Compute a Cartesian z-coordinate distance matrix
-            # TODO (@DanielYang59): account for periodic boundary condition
-            dist_matrix: NDArray = np.zeros((n_atoms, n_atoms), dtype=np.float64)
-            for i, j in itertools.combinations(range(n_atoms), 2):
-                if i != j:
-                    z_dist = frac_coords[i][2] - frac_coords[j][2]
-                    z_dist = abs(z_dist - round(z_dist)) * self._proj_height
-                    dist_matrix[i, j] = z_dist
-                    dist_matrix[j, i] = z_dist
-
-            # Cluster the sites by z coordinates
-            z_matrix = linkage(squareform(dist_matrix))
-            clusters = fcluster(z_matrix, ftol, criterion="distance")
-
-            # Generate cluster to z-coordinate mapping
-            clst_loc: dict[Any, float] = {clst: frac_coords[idx][2] for idx, clst in enumerate(clusters)}
-
-            # Wrap all clusters into the unit cell ([0, 1) range)
-            possible_clst: list[float] = [coord - math.floor(coord) for coord in sorted(clst_loc.values())]
-
-            # Calculate terminations
-            n_terms: int = len(possible_clst)
-            terminations: list[float] = []
-            for idx in range(n_terms):
-                # Handle the special case for the first-last pair of
-                # z coordinates (because of periodic boundary condition)
-                if idx == n_terms - 1:
-                    termination = (possible_clst[0] + 1 + possible_clst[idx]) * 0.5
-                else:
-                    termination = (possible_clst[idx] + possible_clst[idx + 1]) * 0.5
-
-                # Wrap termination to [0, 1) range
-                terminations.append(termination - math.floor(termination))
-
-            return sorted(terminations)
 
         def get_z_ranges(
             bonds: dict[tuple[Species | Element | str, Species | Element | str], float],
@@ -1373,7 +1382,7 @@ class SlabGenerator:
         z_ranges = [] if bonds is None else get_z_ranges(bonds, ztol)
 
         slabs: list[Slab] = []
-        for termination in gen_possible_terminations(ftol=ftol):
+        for termination in self.gen_possible_terminations(ftol=ftol):
             # Calculate total number of bonds broken (how often the
             # termination fall within the z_range occupied by a bond)
             bonds_broken = 0
