@@ -10,7 +10,7 @@ import os
 import warnings
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, SupportsIndex, cast
 
 import numpy as np
 import orjson
@@ -133,11 +133,11 @@ class VolumetricData(MSONable):
             self._spin_data = spin_data
         return self._spin_data
 
-    def get_axis_grid(self, ind: int) -> list[float]:
+    def get_axis_grid(self, ind: SupportsIndex) -> list[float]:
         """Get the grid for a particular axis.
 
         Args:
-            ind (int): Axis index.
+            ind (SupportsIndex): Axis index.
         """
         ng = self.dim
         num_pts = ng[ind]

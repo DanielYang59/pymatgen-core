@@ -390,7 +390,7 @@ class Vasprun(MSONable):
                         parse_projected_eigen=parse_projected_eigen,
                     )
                     self.nionic_steps = len(self.md_data)
-                    self.md_data = self.md_data[ionic_step_offset :: int(ionic_step_skip or 1)]
+                    self.md_data: list[dict] = self.md_data[ionic_step_offset :: int(ionic_step_skip or 1)]
         else:
             with zopen(filename, mode="rb") as file:
                 self._parse(

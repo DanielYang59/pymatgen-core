@@ -22,7 +22,7 @@ import os
 import warnings
 from fractions import Fraction
 from functools import reduce
-from typing import TYPE_CHECKING, Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, SupportsIndex, cast, overload
 
 import numpy as np
 import orjson
@@ -633,7 +633,7 @@ class Slab(Structure):
 
     def add_adsorbate_atom(
         self,
-        indices: list[int],
+        indices: Sequence[SupportsIndex],
         species: str | Element | Species,
         distance: float,
         specie: Species | Element | str | None = None,
@@ -696,25 +696,25 @@ class Slab(Structure):
         self.append(species, point, coords_are_cartesian=coords_are_cartesian)
         self.append(species, equi_site, coords_are_cartesian=coords_are_cartesian)
 
-    def symmetrically_remove_atoms(self, indices: list[int]) -> None:
+    def symmetrically_remove_atoms(self, indices: Sequence[SupportsIndex]) -> None:
         """Remove sites from a list of indices. Will also remove the
         equivalent site on the other side of the slab to maintain symmetry.
 
         Args:
-            indices (list[int]): The indices of the sites to remove.
+            indices (Sequence[SupportsIndex]): The indices of the sites to remove.
 
         TODO(@DanielYang59):
         1. Reuse public method get_symmetric_site to get equi sites?
         2. If not 1, get_equi_sites has multiple nested loops
         """
 
-        def get_equi_sites(slab: Slab, sites: list[int]) -> list[int]:
+        def get_equi_sites(slab: Slab, sites: Sequence[SupportsIndex]) -> list[SupportsIndex]:
             """
             Get the indices of the equivalent sites of given sites.
 
             Parameters:
                 slab (Slab): The slab structure.
-                sites (list[int]): Original indices of sites.
+                sites (Sequence[SupportsIndex]): Original indices of sites.
 
             Returns:
                 list[int]: Indices of the equivalent sites.
