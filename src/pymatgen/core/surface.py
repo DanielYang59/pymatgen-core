@@ -20,6 +20,7 @@ import logging
 import math
 import os
 import warnings
+from fractions import Fraction
 from functools import reduce
 from typing import TYPE_CHECKING, Literal, cast, overload
 
@@ -2312,30 +2313,49 @@ def _is_in_miller_family(
     return any(in_coord_list(miller_list, op.operate(miller_index)) for op in symm_ops)
 
 
-def hkl_transformation(
-    transf: np.ndarray,
-    miller_index: tuple[int, ...],
-) -> tuple[int, int, int]:
-    """Transform the Miller index from setting A to B with a transformation matrix.
-
-    Args:
-        transf (3x3 array): The matrix that transforms a lattice from A to B.
-        miller_index (tuple[int, ...]): The Miller index [h, k, l] to transform.
-    """
+def _index_transformation(transf: NDArray, index: tuple[int, int, int] | NDArray) -> NDArray[int]:
+    """Transforms a given index via transf @ index, while avoiding floats."""
     # Convert the elements of the transformation matrix to integers
-    reduced_transf = reduce(math.lcm, [int(1 / i) for i in itertools.chain(*transf) if i != 0]) * transf
-    reduced_transf = reduced_transf.astype(int)
+    fractions = [Fraction(value).limit_denominator(100) for value in itertools.chain.from_iterable(transf)]
+    reduced_transf = np.rint(math.lcm(*(f.denominator for f in fractions)) * transf).astype(int)
 
     # Perform the transformation
-    transf_hkl = np.dot(reduced_transf, miller_index)
-    divisor = abs(reduce(math.gcd, transf_hkl))  # type: ignore[arg-type]
-    transf_hkl = np.array([idx // divisor for idx in transf_hkl])
+    transf_hkl = reduced_transf @ np.asarray(index, dtype=int)
+    transf_hkl //= math.gcd(*transf_hkl)
+    return transf_hkl
 
-    # Get positive Miller index
-    if sum(idx < 0 for idx in transf_hkl) > 1:
+
+def hkl_transformation(transf: NDArray, miller_index: tuple[int, int, int] | NDArray) -> tuple[int, int, int]:
+    """Transform the Miller index (hkl) from setting A to B with a transformation matrix.
+
+    Args:
+        transf (3x3 array): The matrix that transforms a lattice A to B via B = transf @ A.
+        miller_index (tuple[int, int, int]): The Miller index (h, k, l) to transform.
+
+    Returns:
+        transformed_miller_index (tuple[int, int, int]): The Miller index in setting B.
+            Its first nonzero index is positive.
+    """
+    transf_hkl = _index_transformation(transf, miller_index)
+
+    # Get positive Miller index (first nonzero index positive)
+    if next(index for index in transf_hkl if index != 0) < 0:
         transf_hkl *= -1
 
-    return tuple(transf_hkl)
+    return cast("tuple[int, int, int]", tuple(transf_hkl))
+
+
+def uvw_transformation(transf: NDArray, uvw: tuple[int, int, int] | NDArray) -> tuple[int, int, int]:
+    """Transform the direction index (uvw) from setting A to B with a transformation matrix.
+
+    Args:
+        transf (3x3 array): The matrix that transforms a lattice A to B via B = transf @ A.
+        uvw (tuple[int, int, int]): The direction index (u, v, w) to transform.
+
+    Returns:
+        transformed_direction_index (tuple[int, int, int]): The direction index in setting B.
+    """
+    return cast("tuple[int, int, int]", tuple(_index_transformation(np.linalg.inv(transf).T, uvw)))
 
 
 def miller_index_from_sites(

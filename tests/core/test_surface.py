@@ -20,7 +20,9 @@ from pymatgen.core.surface import (
     get_slab_regions,
     get_symmetrically_distinct_miller_indices,
     get_symmetrically_equivalent_miller_indices,
+    hkl_transformation,
     miller_index_from_sites,
+    uvw_transformation,
 )
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.symmetry.groups import SpaceGroup
@@ -861,6 +863,26 @@ class TestMillerIndexFinder(MatSciTest):
         tetra_conv_exp = [(1, 0, 0), (0, 0, 1), (1, 1, 0), (1, 0, 1), (1, 1, 1)]
         tetra = Structure(Lattice.tetragonal(2, 3), ["H"], [[0, 0, 0]])
         assert get_symmetrically_distinct_miller_indices(tetra, 1) == tetra_conv_exp
+
+    def test_hkl_uvw_transformation(self):
+        """Test hkl/uvw_transformation for reasonable results."""
+        # hkls should be reduced
+        matrix = np.eye(3)
+        assert hkl_transformation(matrix, (2, 2, 2)) == (1, 1, 1)
+        # hkl_transformation should use the correct determinant
+        matrix[0, 0] = 2 / 3
+        assert hkl_transformation(matrix, (3, 1, 0)) == (2, 1, 0)
+
+        # Test a realistic scenario
+        struct = Structure.from_spacegroup(
+            167, Lattice.hexagonal(5, 7), ("Ca", "C", "O"), ((0, 0, 0), (0, 0, 0.25), (0.25, 0, 0.25))
+        )
+
+        matrix = SpacegroupAnalyzer(struct).get_conventional_to_primitive_transformation_matrix()
+
+        # Both have gcd 3: (6, 3, 3) and [3, -3, -3]
+        assert hkl_transformation(matrix, (1, 0, 4)) == (2, 1, 1)
+        assert uvw_transformation(matrix, (4, 2, -1)) == (1, -1, -1)
 
     def test_get_symmetrically_equivalent_miller_indices(self):
         # Tests to see if the function obtains all equivalent hkl for cubic (100)
