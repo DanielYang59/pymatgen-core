@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import warnings
 from shutil import which
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from pytest import approx
 
+from pymatgen.command_line import enumlib_caller
 from pymatgen.command_line.enumlib_caller import EnumError, EnumlibAdaptor
 from pymatgen.core import Element, Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
@@ -18,6 +22,48 @@ ENUM_CMD = which("enum.x") or which("multienum.x")
 MAKESTR_CMD = which("makestr.x") or which("makeStr.x") or which("makeStr.py")
 
 ENUMLIB_TEST_FILES_DIR: str = f"{TEST_FILES_DIR}/command_line/enumlib"
+
+
+class TestEnumlibJlWarning:
+    """Tests for the advisory Enumlib.jl recommendation.
+
+    These are independent of any installed enum.x: the ``--version`` probe is
+    monkeypatched to simulate the Fortran and Julia engines.
+    """
+
+    @staticmethod
+    def _patch_version_output(monkeypatch, stdout="", stderr=""):
+        """Fake ``subprocess.run`` so the version probe returns fixed output."""
+
+        def fake_run(*_args, **_kwargs):
+            return SimpleNamespace(stdout=stdout, stderr=stderr, returncode=0)
+
+        monkeypatch.setattr(enumlib_caller.subprocess, "run", fake_run)
+        # Clear the per-process probe cache so each simulation is honored.
+        enumlib_caller._is_enumlib_jl.cache_clear()
+
+    def test_warns_for_fortran_enum(self, monkeypatch):
+        # Legacy Fortran enum.x: no "Enumlib.jl" token -> warning fires.
+        self._patch_version_output(monkeypatch, stderr="Unknown option --version")
+        with pytest.warns(UserWarning, match="Enumlib.jl"):
+            enumlib_caller._warn_if_not_enumlib_jl("/fake/fortran/enum.x")
+
+    def test_no_warn_for_julia_enum(self, monkeypatch):
+        # Julia Enumlib.jl engine: token present -> no warning.
+        self._patch_version_output(monkeypatch, stdout="enum.x (Enumlib.jl) 0.3.2")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any UserWarning would fail the test
+            enumlib_caller._warn_if_not_enumlib_jl("/fake/julia/enum.x")
+        assert enumlib_caller._is_enumlib_jl("/fake/julia/enum.x") is True
+
+    def test_probe_never_raises(self, monkeypatch):
+        # A crashing probe must be swallowed and reported as "not Enumlib.jl".
+        def boom(*_args, **_kwargs):
+            raise subprocess.TimeoutExpired(cmd="enum.x", timeout=10)
+
+        monkeypatch.setattr(enumlib_caller.subprocess, "run", boom)
+        enumlib_caller._is_enumlib_jl.cache_clear()
+        assert enumlib_caller._is_enumlib_jl("/fake/hanging/enum.x") is False
 
 
 @pytest.mark.skipif(not (ENUM_CMD and MAKESTR_CMD), reason="enumlib not present.")
