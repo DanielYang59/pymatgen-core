@@ -1,7 +1,7 @@
 
 # Changelog
 
-## v2026.8.14
+## v2026.8.13
 
 - PR #123 The `enumlib_caller` module docstring notes [Enumlib.jl](https://github.com/glwhart/Enumlib.jl), a from-scratch Julia reimplementation of enumlib that is a drop-in replacement for `enum.x` (unchanged `struct_enum.in`/`out` contract, `makeStr.py` reused; this module's own test suite passes against it). `EnumlibAdaptor` emits an advisory `UserWarning` recommending it when the resolved `enum.x` is not Enumlib.jl; detection probes `enum.x --version` at most once per command path and never raises, so enumeration behavior is unchanged. (by @glwhart)
 - PR #99 `Locpot` and `Elfcar` store collinear spin-polarized data under `spin_up`/`spin_down` keys, matching what VASP actually writes for these files (two direct spin channels) instead of mislabeling them with CHGCAR's `total`/`diff` (total/magnetization) convention. Legacy `total`/`diff` access keeps working through warning-backed deprecated aliases. `VolumetricData` gains a `data_key` argument selecting the primary grid, `is_soc` is now detected from the `diff_x`/`diff_y`/`diff_z` keys instead of `len(data) >= 4`, and `linear_add`/`scale` invalidate cached spin data. Fixes materialsproject/pymatgen#4307. (by @DanielYang59)
