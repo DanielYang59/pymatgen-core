@@ -4707,6 +4707,7 @@ class Oszicar:
         """
 
         def smart_convert(header: str, num: float | str) -> float | str:
+            num = missing_exponent_pattern.sub(r"E\1", str(num))
             try:
                 return int(num) if header in {"N", "ncg"} else float(num)
 
@@ -4716,6 +4717,8 @@ class Oszicar:
         electronic_steps = []
         ionic_steps = []
         ionic_general_pattern = re.compile(r"(\w+)=\s*(\S+)")
+        # VASP can omit the exponent marker before a trailing signed exponent.
+        missing_exponent_pattern = re.compile(r"(?<=\d)([+-]\d+)$")
         electronic_pattern = re.compile(r"\s*\w+\s*:(.*)")
 
         header: list = []
@@ -4734,7 +4737,9 @@ class Oszicar:
                 elif line.strip() != "":
                     # remove space first and apply field agnostic extraction
                     matches = re.findall(ionic_general_pattern, re.sub(r"d E ", "dE", line))
-                    ionic_steps.append({key: _vasprun_float(value) for key, value in matches})
+                    ionic_steps.append(
+                        {key: _vasprun_float(missing_exponent_pattern.sub(r"E\1", value)) for key, value in matches}
+                    )
 
         self.electronic_steps = electronic_steps
         self.ionic_steps = ionic_steps
