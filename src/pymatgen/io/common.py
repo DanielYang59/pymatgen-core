@@ -16,7 +16,6 @@ import numpy as np
 import orjson
 from monty.io import zopen
 from monty.json import MSONable
-from scipy.interpolate import RegularGridInterpolator
 
 from pymatgen.core import Element, Site, Structure
 from pymatgen.core.units import ang_to_bohr, bohr_to_angstrom
@@ -138,14 +137,9 @@ class VolumetricData(MSONable):
         # lazy init the spin data since this is not always needed.
         self._spin_data: dict[Spin, NDArray] = {}
         self._distance_matrix = distance_matrix if distance_matrix is not None else {}
-        self.xpoints = np.linspace(0.0, 1.0, num=self.dim[0])
-        self.ypoints = np.linspace(0.0, 1.0, num=self.dim[1])
-        self.zpoints = np.linspace(0.0, 1.0, num=self.dim[2])
-        self.interpolator = RegularGridInterpolator(
-            (self.xpoints, self.ypoints, self.zpoints),
-            self.data[self.data_key],
-            bounds_error=True,
-        )
+        self.xpoints = np.arange(self.dim[0]) / self.dim[0]
+        self.ypoints = np.arange(self.dim[1]) / self.dim[1]
+        self.zpoints = np.arange(self.dim[2]) / self.dim[2]
         self.name = "VolumetricData"
 
     def __add__(self, other) -> Self:
@@ -241,11 +235,47 @@ class VolumetricData(MSONable):
             self.data[k] = np.multiply(self.data[k], factor)
         self._spin_data = {}
 
+    def interpolator(self, points: ArrayLike) -> NDArray:
+        """Interpolate the primary data grid at fractional coordinates.
+
+        The volumetric grid is periodic, with samples along each axis located at
+        ``i / n`` for ``i`` in ``range(n)``. Coordinates outside the unit cell are
+        wrapped before performing trilinear interpolation.
+
+        Args:
+            points: Fractional coordinates with shape ``(..., 3)``.
+
+        Returns:
+            Interpolated values with the leading shape of ``points``. A single
+            coordinate returns an array with shape ``(1,)``.
+        """
+        points_array = np.asarray(points, dtype=float)
+        if points_array.shape[-1:] != (3,):
+            raise ValueError(f"Expected fractional coordinates with shape (..., 3), got {points_array.shape}")
+
+        output_shape = points_array.shape[:-1] or (1,)
+        frac_coords = np.mod(points_array.reshape(-1, 3), 1)
+        grid_shape = np.array(self.dim)
+        grid_coords = frac_coords * grid_shape
+        lower = np.floor(grid_coords).astype(int)
+        upper_weights = grid_coords - lower
+        lower %= grid_shape
+        upper = (lower + 1) % grid_shape
+
+        grid = self.data[self.data_key]
+        values = np.zeros(len(grid_coords), dtype=np.result_type(grid.dtype, float))
+        for corner in itertools.product((0, 1), repeat=3):
+            use_upper = np.array(corner, dtype=bool)
+            indices = np.where(use_upper, upper, lower)
+            weights = np.prod(np.where(use_upper, upper_weights, 1 - upper_weights), axis=1)
+            values += weights * grid[tuple(indices.T)]
+
+        return values.reshape(output_shape)
+
     def value_at(self, x: float, y: float, z: float) -> float:
         """Get a data value from self.data at a given point (x, y, z) in terms
-        of fractional lattice parameters. Will be interpolated using a
-        RegularGridInterpolator on self.data if (x, y, z) is not in the original
-        set of data points.
+        of fractional lattice parameters. Points outside the unit cell are wrapped
+        periodically, and points not on the original grid are interpolated.
 
         Args:
             x (float): Fraction of lattice vector a.
@@ -277,10 +307,8 @@ class VolumetricData(MSONable):
         if p1.shape != (3,) or p2.shape != (3,):
             raise ValueError(f"lengths of p1 and p2 should be 3, got {len(p1)} and {len(p2)}")
 
-        x_pts = np.linspace(p1[0], p2[0], num=n)
-        y_pts = np.linspace(p1[1], p2[1], num=n)
-        z_pts = np.linspace(p1[2], p2[2], num=n)
-        return [self.value_at(x_pts[i], y_pts[i], z_pts[i]) for i in range(n)]
+        points = np.linspace(p1, p2, num=n)
+        return self.interpolator(points).tolist()
 
     def get_integrated_diff(self, ind: int, radius: float, nbins: int = 1) -> NDArray:
         """Get integrated difference of atom index ind up to radius. This can be
