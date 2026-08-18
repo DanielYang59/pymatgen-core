@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 
 import numpy as np
 import orjson
@@ -57,6 +58,69 @@ class TestPhononDos(MatSciTest):
         assert self.dos.helmholtz_free_energy(300, structure=self.structure) == approx(-6998.034212172695, abs=1e-4)
         assert self.dos.entropy(300, structure=self.structure) == approx(75.08543723748751, abs=1e-4)
         assert self.dos.zero_point_energy(structure=self.structure) == approx(4847.462485708741, abs=1e-4)
+
+    def test_thermodynamic_functions_with_zero_frequency_sample(self):
+        """Grids that sample omega = 0 exactly must not poison the integrals with nan.
+
+        phonopy writes such a grid whenever a DOS range is requested
+        (phonopy --dos --dos-range="0 <max> <pitch>"), and it is what
+        np.linspace(0, f_max, n) gives, so this is a common input to get_ph_dos.
+        """
+        n_pts = 401
+        freqs = np.linspace(0, 20, n_pts)
+        # Debye-like DOS: g(omega) ~ omega**2, vanishing at omega = 0 as any physical DOS must
+        dos = PhononDos(freqs, freqs**2)
+        assert dos.frequencies[0] == 0
+        assert dos.ind_zero_freq == 0
+
+        with warnings.catch_warnings():  # a vanishing g(0) must not warn
+            warnings.simplefilter("error")
+            for temp in (10, 300):
+                for value in (
+                    dos.cv(temp),
+                    dos.entropy(temp),
+                    dos.internal_energy(temp),
+                    dos.helmholtz_free_energy(temp),
+                ):
+                    assert np.isfinite(value)
+
+        # the omega = 0 sample carries zero density, so dropping it must leave the
+        # integrals unchanged up to the one trapezoid panel [0, delta] it spans
+        trimmed = PhononDos(freqs[1:], freqs[1:] ** 2)
+        assert dos.cv(300) == approx(trimmed.cv(300), rel=1e-3)
+        assert dos.entropy(300) == approx(trimmed.entropy(300), rel=1e-3)
+        assert dos.internal_energy(300) == approx(trimmed.internal_energy(300), rel=1e-3)
+        assert dos.helmholtz_free_energy(300) == approx(trimmed.helmholtz_free_energy(300), rel=1e-3)
+        assert dos.zero_point_energy() == approx(trimmed.zero_point_energy(), rel=1e-3)
+
+    def test_thermodynamic_functions_warn_on_finite_zero_frequency_density(self):
+        """g(0) > 0 puts the DOS outside the harmonic model S and F assume, so warn.
+
+        C_v and U have finite omega -> 0 weight limits and stay exact, but the S and F
+        weights diverge logarithmically there. The divergence is integrable, so dropping
+        the omega = 0 sample still converges (verified below by refining the grid), but on
+        a coarse grid it under-integrates and the user should hear about it.
+        """
+        freqs = np.linspace(0, 10, 201)
+        dos = PhononDos(freqs, np.ones_like(freqs))  # diffusive-style VDOS, g(0) = 1
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert np.isfinite(dos.cv(300))
+            assert np.isfinite(dos.internal_energy(300))
+
+        for func in (dos.entropy, dos.helmholtz_free_energy):
+            with pytest.warns(UserWarning, match="non-zero density"):
+                assert np.isfinite(func(300))
+
+        # refining the grid converges rather than diverging
+        with pytest.warns(UserWarning, match="non-zero density"):
+            coarse = dos.entropy(300)
+        fine_freqs = np.linspace(0, 10, 6401)
+        with pytest.warns(UserWarning, match="non-zero density"):
+            fine = PhononDos(fine_freqs, np.ones_like(fine_freqs)).entropy(300)
+        assert coarse < fine
+        assert fine == approx(coarse, rel=0.02)
 
     def test_add(self):
         dos_2x = self.dos + self.dos
