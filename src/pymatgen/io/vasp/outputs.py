@@ -4081,7 +4081,9 @@ class VolumetricData(BaseVolumetricData):
             file.write(lines)  # type:ignore[arg-type]
             dim = self.dim
 
-            data_keys = ("spin_up", "spin_down") if {"spin_up", "spin_down"}.issubset(self.data) else ("total",)
+            data_keys: tuple[str, ...] = (
+                ("spin_up", "spin_down") if {"spin_up", "spin_down"}.issubset(self.data) else ("total",)
+            )
             if self.is_soc:
                 data_keys = ("total", "diff_x", "diff_y", "diff_z")
             elif self.is_spin_polarized and data_keys == ("total",):
