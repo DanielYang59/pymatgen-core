@@ -782,7 +782,7 @@ class CompleteDos(Dos):
                 for orb, pdos in atom_dos.items():
                     if orb in (Orbital.dxy, Orbital.dxz, Orbital.dyz):
                         t2g_dos.append(pdos)
-                    elif orb in (Orbital.dx2, Orbital.dz2):
+                    elif orb in (Orbital.dx2_y2, Orbital.dz2):
                         eg_dos.append(pdos)
         return {
             "t2g": Dos(self.efermi, self.energies, functools.reduce(add_densities, t2g_dos)),
@@ -1390,14 +1390,16 @@ class CompleteDos(Dos):
         for idx in range(len(dct["pdos"])):
             at = struct[idx]
             orb_dos = {}
+            # TODO(2027-08-17): Remove legacy "dx2" deserialization.
             for orb_str, odos in dct["pdos"][idx].items():
-                orb = Orbital[orb_str]
+                orb = Orbital["dx2_y2" if orb_str == "dx2" else orb_str]
                 orb_dos[orb] = {Spin(int(k)): v for k, v in odos["densities"].items()}
             pdoss[at] = orb_dos
         return cls(struct, tdos, pdoss)
 
     def as_dict(self) -> dict[str, Any]:
         """JSON-serializable dict representation of CompleteDos."""
+        # TODO(2027-08-17): Serialize canonical "dx2_y2" names instead of the legacy "dx2" key.
         dct = {
             "@module": type(self).__module__,
             "@class": type(self).__name__,
@@ -1411,7 +1413,8 @@ class CompleteDos(Dos):
             for at in self.structure:
                 dd = {}
                 for orb, pdos in self.pdos[at].items():
-                    dd[str(orb)] = {"densities": {str(int(spin)): list(dens) for spin, dens in pdos.items()}}  # type:ignore[arg-type]
+                    orb_name = "dx2" if orb is Orbital.dx2_y2 else str(orb)
+                    dd[orb_name] = {"densities": {str(int(spin)): list(dens) for spin, dens in pdos.items()}}  # type:ignore[arg-type]
                 dct["pdos"].append(dd)
             dct["atom_dos"] = {str(at): dos.as_dict() for at, dos in self.get_element_dos().items()}
             dct["spd_dos"] = {str(orb): dos.as_dict() for orb, dos in self.get_spd_dos().items()}
@@ -1486,7 +1489,7 @@ class LobsterCompleteDos(CompleteDos):
 
                     if orbital in (Orbital.dxy, Orbital.dxz, Orbital.dyz):
                         t2g_dos.append(pdos)
-                    elif orbital in (Orbital.dx2, Orbital.dz2):
+                    elif orbital in (Orbital.dx2_y2, Orbital.dz2):
                         eg_dos.append(pdos)
         return {
             "t2g": Dos(self.efermi, self.energies, functools.reduce(add_densities, t2g_dos)),

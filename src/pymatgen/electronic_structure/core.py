@@ -4,7 +4,8 @@ including Spin, Orbital and Magmom.
 
 from __future__ import annotations
 
-from enum import Enum, unique
+import warnings
+from enum import Enum, EnumType, unique
 from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
@@ -49,8 +50,35 @@ class OrbitalType(Enum):
         return cast("Literal['s', 'p', 'd', 'f']", str(self.name))
 
 
+class _OrbitalMeta(EnumType):
+    """Metaclass providing deprecated orbital-name compatibility."""
+
+    def __getattr__(cls, name: str):
+        if name == "dx2":
+            warnings.warn(
+                "Orbital.dx2 is deprecated; use Orbital.dx2_y2 instead. It will be removed on 2027-08-17.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return cls.dx2_y2
+        try:
+            return super().__getattr__(name)  # type: ignore[misc]
+        except AttributeError:
+            raise AttributeError(name) from None
+
+    def __getitem__(cls, name: str):
+        if name == "dx2":
+            warnings.warn(
+                "The 'dx2' orbital name is deprecated; use 'dx2_y2' instead. It will be removed on 2027-08-17.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            name = "dx2_y2"
+        return super().__getitem__(name)
+
+
 @unique
-class Orbital(Enum):
+class Orbital(Enum, metaclass=_OrbitalMeta):
     """Enum type for specific orbitals. The indices are the order in
     which the orbitals are reported in VASP and has no special meaning.
     """
@@ -63,7 +91,7 @@ class Orbital(Enum):
     dyz = 5
     dz2 = 6
     dxz = 7
-    dx2 = 8
+    dx2_y2 = 8
     f_3 = 9
     f_2 = 10
     f_1 = 11

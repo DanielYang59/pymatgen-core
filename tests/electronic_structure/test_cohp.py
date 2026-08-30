@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import orjson
 import pytest
 from numpy.testing import assert_allclose
@@ -973,6 +975,33 @@ class TestCompleteCohp(MatSciTest):
         #         for bond in cohp_lmto_dict[key]:
         #             if bond != "average":
         #                 assert cohp_lmto_dict[key][bond] == self.cohp_lmto_dict.as_dict()[key][bond]
+
+    def test_legacy_dx2_orbital_name(self):
+        with open(f"{TEST_DIR}/complete_cohp_forb.json", "rb") as file:
+            dct = orjson.loads(file.read())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            cohp = CompleteCohp.from_dict(dct)
+        cohp_dict = cohp.as_dict()
+        assert all("dx2_y2" not in orb for orb in cohp_dict["orb_res_cohp"]["49"])
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            round_trip_cohp = CompleteCohp.from_dict(cohp_dict)
+        assert round_trip_cohp.as_dict() == cohp_dict
+
+        legacy_label = next(orb for orb in cohp_dict["orb_res_cohp"]["49"] if "dx2" in orb)
+        canonical_label = legacy_label.replace("dx2", "dx2_y2")
+        mixed_label = f"{legacy_label}-{canonical_label}"
+        orbital_data = cohp_dict["orb_res_cohp"]["49"].pop(legacy_label)
+        for orbital in orbital_data["orbitals"]:
+            if orbital[1] == "dx2":
+                orbital[1] = "dx2_y2"
+        cohp_dict["orb_res_cohp"]["49"][mixed_label] = orbital_data
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            canonical_cohp = CompleteCohp.from_dict(cohp_dict)
+        assert f"{canonical_label}-{canonical_label}" in canonical_cohp.orb_res_cohp["49"]
 
     def test_icohp_values(self):
         # icohp_ef are the ICHOP(Ef) values taken from
