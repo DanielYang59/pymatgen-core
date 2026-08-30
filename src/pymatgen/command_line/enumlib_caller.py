@@ -6,12 +6,15 @@ makestr.x available in the path. Please download the library at
 https://github.com/msg-byu/enumlib and follow the instructions in the README to
 compile these two executables accordingly.
 
-Alternatively, ``enum.x`` can be provided by Enumlib.jl
+Alternatively, ``enum.x`` and ``makestr.x`` can be provided by Enumlib.jl
 (https://github.com/glwhart/Enumlib.jl), a from-scratch Julia reimplementation of
 enumlib by one of its authors. It is a drop-in replacement: the
-``struct_enum.in`` / ``struct_enum.out`` file contract is unchanged and
-``makeStr.py`` is reused, so only ``enum.x`` is swapped. This module's own test
-suite passes against it.
+``struct_enum.in`` / ``struct_enum.out`` file contract is unchanged. Note that
+Enumlib.jl's ``makestr.x`` strictly validates that the site coordinates in
+``struct_enum.out`` are consistent with the space group it rederives, which the
+legacy Fortran tools did not; this module therefore writes symmetry-idealized
+coordinates to ``struct_enum.in``. This module's own test suite passes against
+both engines.
 
 If you use this module, please cite:
 
@@ -214,13 +217,49 @@ class EnumlibAdaptor:
             else:
                 raise EnumError("Unable to enumerate structure.")
 
+    def _idealize_coords(self, structure: Structure | IStructure) -> Structure:
+        """Project fractional coordinates onto ideal symmetry positions.
+
+        Coordinates of sites in the same crystallographic orbit (determined at
+        ``self.symm_prec``) are group-averaged over all their space-group
+        images, which makes them exactly invariant under the detected
+        symmetry operations. The input file generated for enumlib declares
+        sites as symmetry-equivalent orbits, so the coordinates written must
+        actually obey that symmetry: relaxed structures typically break it by
+        ~1e-4 Angstrom, which Enumlib.jl's makestr.x rejects during its
+        internal symmetry consistency check.
+
+        Args:
+            structure (Structure | IStructure): Input structure.
+
+        Returns:
+            Structure: Copy of the structure with idealized fractional coords.
+        """
+        spga = SpacegroupAnalyzer(structure, self.symm_prec)
+        ops = spga.get_symmetry_operations()
+        sym_struct = spga.get_symmetrized_structure()
+        frac_coords = np.array(structure.frac_coords)
+        idealized = Structure.from_sites(structure.sites)
+        for orbit in sym_struct.equivalent_indices:
+            orbit_coords = frac_coords[orbit]
+            images = np.concatenate([op.operate_multi(orbit_coords) for op in ops])
+            # Assign every image to the nearest orbit site under the
+            # minimum-image convention, then average the images per site.
+            delta = images[:, None, :] - orbit_coords[None, :, :]
+            delta -= np.round(delta)
+            nearest = np.linalg.norm(delta, axis=2).argmin(axis=1)
+            for k, site_idx in enumerate(orbit):
+                idealized[site_idx].frac_coords = orbit_coords[k] + delta[nearest == k, k].mean(axis=0)
+        return idealized
+
     def _gen_input_file(self) -> None:
         """Generate the necessary struct_enum.in file for enumlib. See enumlib
         documentation for details.
         """
         coord_format = "{:.6f} {:.6f} {:.6f}"
         # Use symmetry finder to get the symmetrically distinct sites
-        fitter = SpacegroupAnalyzer(self.structure, self.symm_prec)
+        structure = self._idealize_coords(self.structure)
+        fitter = SpacegroupAnalyzer(structure, self.symm_prec)
         symmetrized_structure = fitter.get_symmetrized_structure()
         logger.debug(
             f"Spacegroup {fitter.get_space_group_symbol()} ({fitter.get_space_group_number()}) "
@@ -395,6 +434,7 @@ class EnumlibAdaptor:
             [MAKESTR_CMD, *options],
             stdout=subprocess.PIPE,
             stdin=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             close_fds=True,
         ) as rs:
             _stdout, stderr = rs.communicate()
@@ -471,6 +511,12 @@ class EnumlibAdaptor:
                     else:
                         logger.debug("Skipping sites that include species X.")
                 structs.append(Structure.from_sites(sorted(sites)))  # type:ignore[arg-type]
+
+        if len(structs) != num_structs:
+            raise EnumError(
+                f"{MAKESTR_CMD} produced {len(structs)} of the {num_structs} structures reported by "
+                f"enumeration. Error output: {stderr.decode().strip() if stderr else '(none)'}"
+            )
 
         logger.debug(f"Read in a total of {num_structs} structures.")
         return structs

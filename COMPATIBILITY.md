@@ -35,6 +35,31 @@ removal PR must reference the deprecation.
 
 ## Recent Breaking Changes
 
+### v2026.8.30
+
+* [breaking] Do not record the identity as a rotation axis in PointGroupAnalyzer by @HiroYokoyama in [#134](https://github.com/materialsproject/pymatgen-core/pull/134)
+
+  `sch_symbol` changes for molecules whose unique axis of inertia carries no
+  rotation of its own but which have one perpendicular C2 axis: they were
+  reported as `D2` and are now reported as `C2`. `get_symmetry_operations()`
+  and `get_pointgroup()` are unaffected — they already returned the
+  2-operation group. Code that compared `sch_symbol` against the previous
+  (incorrect) value must be updated; nothing else is affected.
+
+* [Breaking] Deprecate `Orbital.dx2` with `Orbital.dx2_y2` by @DanielYang59 in [#94](https://github.com/materialsproject/pymatgen-core/pull/94)
+
+  `Orbital.dx2` is renamed to `Orbital.dx2_y2` (enum value `8` unchanged). To
+  avoid breaking consumers of serialized data, this is a two-phase transition:
+
+  - **Until 2027-08-17:** `Orbital.dx2` / `Orbital["dx2"]` still resolve (with a
+    `DeprecationWarning`); `CompleteCohp.as_dict()` / `CompleteDos.as_dict()`
+    still write the legacy `dx2` key; readers accept both `dx2` and `dx2_y2`.
+  - **From 2027-08-17:** canonical `dx2_y2` is serialized and the legacy
+    alias/read paths are removed.
+
+  **Migration:** use `Orbital.dx2_y2` / `"dx2_y2"`; existing serialized data
+  needs no conversion.
+
 ### v2026.8.13
 
 - `Locpot`/`Elfcar` now store collinear spin-polarized data under `spin_up`/
